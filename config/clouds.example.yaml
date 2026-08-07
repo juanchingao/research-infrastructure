@@ -1,0 +1,15 @@
+# Plantilla de ejemplo para OpenStack SDK/CLI.
+# No incluir credenciales reales en este repositorio.
+clouds:
+  research-example:
+    auth:
+      auth_url: http://10.100.133.11:5000/v3
+      project_name: URJCmedRWD
+      username: REEMPLAZAR
+      password: REEMPLAZAR
+      user_domain_name: Default
+      project_domain_name: Default
+    region_name: RegionOne
+    interface: public
+    identity_api_version: 3
+

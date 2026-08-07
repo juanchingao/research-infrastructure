@@ -1,0 +1,13 @@
+# Configuración base versionable (sin secretos)
+instance_name: research-ws-01
+image: Ubuntu2404
+flavor: 32cpu+60ram+16vol
+network: URJCmedRWD
+availability_zone: nova
+external_network: public
+bootstrap_security_group: default
+research_security_group: research-workstation
+ssh_user: ubuntu
+keypair: CHANGE_ME_OPENSTACK_KEYPAIR
+cloud_init_file: cloud/cloud-init.base.yaml
+floating_ip_delete_on_destroy: false

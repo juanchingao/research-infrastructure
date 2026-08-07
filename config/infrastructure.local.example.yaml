@@ -1,0 +1,6 @@
+# Copia este archivo como config/infrastructure.local.yaml
+# y ajusta solo las claves necesarias en tu entorno local.
+keypair: REEMPLAZAR_POR_TU_KEYPAIR
+instance_name: research-ws-dev
+floating_ip_delete_on_destroy: false
+
