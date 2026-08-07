@@ -1,0 +1,22 @@
+services:
+
+  rstudio:
+    image: rocker/rstudio:4.6.0
+    container_name: research-rstudio
+
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:8787:8787"
+
+    environment:
+      PASSWORD: ${RSTUDIO_PASSWORD}
+
+    volumes:
+      - /data:/data
+      - /data/rstudio-home:/home/rstudio
+
+    working_dir: /data
+
+    security_opt:
+      - no-new-privileges:true
