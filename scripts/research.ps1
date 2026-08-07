@@ -2,6 +2,7 @@
 param(
     [Parameter(Mandatory = $true, Position = 0)]
 [ValidateSet(
+    "start",
     "create",
     "status",
     "mount-data",
@@ -9,7 +10,8 @@ param(
     "tunnel",
     "ssh",
     "destroy"
-)]    [string]$Action,
+)]
+[string]$Action,
 
     [Parameter(Mandatory = $false)]
     [string]$ConfigPath,
@@ -211,7 +213,69 @@ Write-Host "Autenticación OK."
 
 
 switch ($Action) {
+    "start" {
 
+    Write-Section "Iniciando estación de investigación"
+
+    Write-Host ""
+    Write-Host "Paso 1/4 - Infraestructura OpenStack"
+    Write-Host ""
+
+    & $PSCommandPath `
+        -Action "create" `
+        -ConfigPath $ConfigPath
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falló la preparación de la infraestructura."
+    }
+
+
+    Write-Host ""
+    Write-Host "Paso 2/4 - Volumen de datos cifrado"
+    Write-Host ""
+
+    & $PSCommandPath `
+        -Action "mount-data" `
+        -ConfigPath $ConfigPath
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falló el montaje del volumen de datos."
+    }
+
+
+    Write-Host ""
+    Write-Host "Paso 3/4 - RStudio Server"
+    Write-Host ""
+
+    & $PSCommandPath `
+        -Action "deploy-rstudio" `
+        -ConfigPath $ConfigPath
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falló el despliegue de RStudio."
+    }
+
+
+    Write-Section "Estación preparada"
+
+    Write-Host ""
+    Write-Host "VM: lista"
+    Write-Host "Datos: desbloqueados y montados"
+    Write-Host "RStudio: desplegado"
+    Write-Host ""
+    Write-Host "Paso 4/4 - Abriendo túnel"
+    Write-Host "RStudio estará disponible en:"
+    Write-Host ""
+    Write-Host "    http://localhost:8787"
+    Write-Host ""
+
+
+    & $PSCommandPath `
+        -Action "tunnel" `
+        -ConfigPath $ConfigPath
+
+    break
+}
     "create" {
 
         Write-Section "Comprobando security group"
