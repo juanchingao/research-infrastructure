@@ -1,6 +1,14 @@
 # Copia este archivo como config/infrastructure.local.yaml
 # y ajusta solo las claves necesarias en tu entorno local.
-keypair: REEMPLAZAR_POR_TU_KEYPAIR
+
+keypair: 2026-08PortatilURJC
 instance_name: research-ws-dev
 floating_ip_delete_on_destroy: false
 
+# Persistent research storage
+data_volume_name: research-data-01
+data_volume_size_gb: 200
+data_volume_type: __DEFAULT__
+data_volume_availability_zone: nova
+data_mount_point: /data
+data_volume_delete_on_destroy: false
