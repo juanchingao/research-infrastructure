@@ -521,6 +521,9 @@ switch ($Action) {
 
     Write-Section "Desplegando RStudio"
 
+    #
+    # 1. Localizar la VM
+    #
     $server = Get-CurrentServer -Config $config
 
     if ($null -eq $server) {
@@ -543,7 +546,7 @@ switch ($Action) {
 
 
     #
-    # Comprobar que /data está desbloqueado y montado.
+    # 2. Comprobar que /data está desbloqueado y montado
     #
     Write-Section "Comprobando volumen de datos"
 
@@ -564,7 +567,7 @@ switch ($Action) {
 
 
     #
-    # Comprobar secreto de RStudio.
+    # 3. Comprobar secreto de RStudio
     #
     $secretState = @(
         Invoke-ResearchSshCommand `
@@ -583,7 +586,7 @@ switch ($Action) {
 
 
     #
-    # Comprobar home persistente.
+    # 4. Comprobar home persistente de RStudio
     #
     $homeState = @(
         Invoke-ResearchSshCommand `
@@ -602,23 +605,36 @@ switch ($Action) {
 
 
     #
-    # Localizar compose.yaml del repositorio.
+    # 5. Localizar los archivos locales versionados
     #
     $localCompose = Join-Path `
         -Path $repoRoot `
         -ChildPath "services\rstudio\compose.yaml"
 
+    $localDockerfile = Join-Path `
+        -Path $repoRoot `
+        -ChildPath "services\rstudio\Dockerfile"
+
     if (-not (Test-Path $localCompose -PathType Leaf)) {
         throw "No existe el compose de RStudio: $localCompose"
     }
 
+    if (-not (Test-Path $localDockerfile -PathType Leaf)) {
+        throw "No existe el Dockerfile de RStudio: $localDockerfile"
+    }
+
 
     #
-    # Directorio de despliegue remoto.
+    # 6. Definir directorio remoto
     #
     $remoteDir = "/home/$sshUser/research-services/rstudio"
     $remoteCompose = "$remoteDir/compose.yaml"
+    $remoteDockerfile = "$remoteDir/Dockerfile"
 
+
+    #
+    # 7. Crear directorio remoto
+    #
     Write-Section "Sincronizando configuración"
 
     Invoke-ResearchSshCommand `
@@ -626,17 +642,31 @@ switch ($Action) {
         -Host $floatingIp `
         -Command "mkdir -p $remoteDir"
 
+
+    #
+    # 8. Copiar compose.yaml
+    #
     Copy-ResearchFileToHost `
         -LocalPath $localCompose `
         -User $sshUser `
         -Host $floatingIp `
         -RemotePath $remoteCompose
 
-    Write-Host "compose.yaml sincronizado."
+
+    #
+    # 9. Copiar Dockerfile
+    #
+    Copy-ResearchFileToHost `
+        -LocalPath $localDockerfile `
+        -User $sshUser `
+        -Host $floatingIp `
+        -RemotePath $remoteDockerfile
+
+    Write-Host "compose.yaml y Dockerfile sincronizados."
 
 
     #
-    # Desplegar/recrear RStudio.
+    # 10. Construir nuestra imagen y desplegar RStudio
     #
     Write-Section "Ejecutando Docker Compose"
 
@@ -648,11 +678,11 @@ switch ($Action) {
     Invoke-ResearchSshCommand `
         -User $sshUser `
         -Host $floatingIp `
-        -Command "$composeCommand pull && $composeCommand up -d"
+        -Command "cd $remoteDir && $composeCommand build --pull && $composeCommand up -d"
 
 
     #
-    # Verificar contenedor.
+    # 11. Verificar que el contenedor está en ejecución
     #
     Write-Section "Verificando RStudio"
 
@@ -669,9 +699,11 @@ switch ($Action) {
         throw "El contenedor research-rstudio no está ejecutándose correctamente."
     }
 
+    Write-Host "Contenedor research-rstudio en ejecución."
+
 
     #
-    # Verificar servicio HTTP local.
+    # 12. Verificar que RStudio responde en localhost:8787
     #
     $httpState = @(
         Invoke-ResearchSshCommand `
@@ -687,10 +719,13 @@ switch ($Action) {
     }
 
 
+    #
+    # 13. Resultado
+    #
     Write-Section "RStudio listo"
 
     Write-Host "Contenedor: research-rstudio"
-    Write-Host "Imagen: rocker/rstudio:4.6.0"
+    Write-Host "Imagen: research-rstudio:4.6.0"
     Write-Host "Puerto remoto: 127.0.0.1:8787"
     Write-Host ""
     Write-Host "Para acceder:"
@@ -698,6 +733,7 @@ switch ($Action) {
 
     break
 }
+
 "tunnel" {
 
     Write-Section "Preparando túnel RStudio"

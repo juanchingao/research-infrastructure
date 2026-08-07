@@ -1,7 +1,10 @@
 services:
-
   rstudio:
-    image: rocker/rstudio:4.6.0
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    image: research-rstudio:4.6.0
     container_name: research-rstudio
 
     restart: unless-stopped
