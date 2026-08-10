@@ -8,7 +8,7 @@ function Get-FlatYamlConfig {
     )
 
     if (-not (Test-Path -Path $Path -PathType Leaf)) {
-        throw "No existe el archivo de configuración: $Path"
+        throw "No existe el archivo de configuracion: $Path"
     }
 
     $result = @{}
@@ -67,7 +67,7 @@ function Get-BooleanFromConfig {
         return $false
     }
 
-    throw "Valor booleano no válido: $Value"
+    throw "Valor booleano no valido: $Value"
 }
 
 function Get-ResearchConfig {
@@ -91,7 +91,7 @@ function Get-ResearchConfig {
     $config = Get-FlatYamlConfig -Path $examplePath
 
     if (-not (Test-Path -Path $localPath -PathType Leaf)) {
-        throw "Falta configuración local: $localPath. Copia config\infrastructure.local.example.yaml a config\infrastructure.local.yaml y personaliza."
+        throw "Falta configuracion local: $localPath. Copia config\infrastructure.local.example.yaml a config\infrastructure.local.yaml y personaliza."
     }
 
     $localOverrides = Get-FlatYamlConfig -Path $localPath
@@ -122,12 +122,12 @@ function Get-ResearchConfig {
 
     foreach ($key in $requiredKeys) {
         if (-not $config.ContainsKey($key) -or [string]::IsNullOrWhiteSpace($config[$key])) {
-            throw "Falta clave requerida en configuración: $key"
+            throw "Falta clave requerida en configuracion: $key"
         }
     }
 
     if ($config["keypair"] -eq "CHANGE_ME_OPENSTACK_KEYPAIR" -or $config["keypair"] -eq "REEMPLAZAR_POR_TU_KEYPAIR") {
-        throw "Debes configurar un keypair válido en config\infrastructure.local.yaml."
+        throw "Debes configurar un keypair valido en config\infrastructure.local.yaml."
     }
 
     if ($config["research_ssh_cidr"] -eq "CHANGE_ME_SSH_CIDR") {
@@ -139,7 +139,7 @@ function Get-ResearchConfig {
     if ($config["research_ssh_cidr"] -notmatch "^.+/(\d|[12]\d|3[0-2])$" -or
         -not [System.Net.IPAddress]::TryParse($cidrAddress, [ref]$parsedAddress) -or
         $parsedAddress.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) {
-        throw "research_ssh_cidr no es un CIDR IPv4 válido: $($config["research_ssh_cidr"])"
+        throw "research_ssh_cidr no es un CIDR IPv4 valido: $($config["research_ssh_cidr"])"
     }
 
     $sizeGb = 0

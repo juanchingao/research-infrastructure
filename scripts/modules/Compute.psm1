@@ -81,7 +81,7 @@ function Wait-ResearchServerActive {
         $details = Get-ResearchServerDetails -ServerId $ServerId
         $statusProperty = $details.PSObject.Properties['status']
         if ($null -eq $statusProperty) {
-            throw "OpenStack no devolvió el estado de la instancia '$ServerId'."
+            throw "OpenStack no devolvio el estado de la instancia '$ServerId'."
         }
 
         $status = ([string]$statusProperty.Value).ToUpperInvariant()
@@ -95,7 +95,7 @@ function Wait-ResearchServerActive {
         Start-Sleep -Seconds 5
     } while ((Get-Date) -lt $deadline)
 
-    throw "La instancia '$ServerId' no alcanzó el estado ACTIVE en $TimeoutSeconds segundos."
+    throw "La instancia '$ServerId' no alcanzo el estado ACTIVE en $TimeoutSeconds segundos."
 }
 
 function Ensure-ResearchServerRunning {
@@ -107,40 +107,40 @@ function Ensure-ResearchServerRunning {
     $details = Get-ResearchServerDetails -ServerId $ServerId
     $statusProperty = $details.PSObject.Properties['status']
     if ($null -eq $statusProperty) {
-        throw "OpenStack no devolvió el estado de la instancia '$ServerId'."
+        throw "OpenStack no devolvio el estado de la instancia '$ServerId'."
     }
 
     $status = ([string]$statusProperty.Value).ToUpperInvariant()
     switch ($status) {
         'ACTIVE' {
-            Write-Host "La instancia ya está activa."
+            Write-Host "La instancia ya esta activa."
             return $details
         }
         'SHUTOFF' {
-            Write-Host "La instancia está apagada; arrancándola."
+            Write-Host "La instancia esta apagada; arrancandola."
             $null = Invoke-OpenStack -Arguments @('server', 'start', $ServerId)
         }
         'SHELVED' {
-            Write-Host "La instancia está shelved; recuperándola."
+            Write-Host "La instancia esta shelved; recuperandola."
             $null = Invoke-OpenStack -Arguments @('server', 'unshelve', $ServerId)
         }
         'SHELVED_OFFLOADED' {
-            Write-Host "La instancia está shelved y descargada; recuperándola."
+            Write-Host "La instancia esta shelved y descargada; recuperandola."
             $null = Invoke-OpenStack -Arguments @('server', 'unshelve', $ServerId)
         }
         'PAUSED' {
-            Write-Host "La instancia está pausada; reanudándola."
+            Write-Host "La instancia esta pausada; reanudandola."
             $null = Invoke-OpenStack -Arguments @('server', 'unpause', $ServerId)
         }
         'SUSPENDED' {
-            Write-Host "La instancia está suspendida; reanudándola."
+            Write-Host "La instancia esta suspendida; reanudandola."
             $null = Invoke-OpenStack -Arguments @('server', 'resume', $ServerId)
         }
         'ERROR' {
-            throw "La instancia '$ServerId' está en estado ERROR."
+            throw "La instancia '$ServerId' esta en estado ERROR."
         }
         default {
-            Write-Host "La instancia está en estado transitorio '$status'; esperando a ACTIVE."
+            Write-Host "La instancia esta en estado transitorio '$status'; esperando a ACTIVE."
         }
     }
 
@@ -157,16 +157,16 @@ function Stop-ResearchServer {
     $details = Get-ResearchServerDetails -ServerId $ServerId
     $statusProperty = $details.PSObject.Properties['status']
     if ($null -eq $statusProperty) {
-        throw "OpenStack no devolvió el estado de la instancia '$ServerId'."
+        throw "OpenStack no devolvio el estado de la instancia '$ServerId'."
     }
 
     $status = ([string]$statusProperty.Value).ToUpperInvariant()
     if ($status -eq 'SHUTOFF') {
-        Write-Host "La instancia ya está apagada."
+        Write-Host "La instancia ya esta apagada."
         return $details
     }
     if ($status -in @('SHELVED', 'SHELVED_OFFLOADED')) {
-        Write-Host "La instancia ya está en estado $status y no consume cómputo activo."
+        Write-Host "La instancia ya esta en estado $status y no consume computo activo."
         return $details
     }
     if ($status -ne 'ACTIVE') {
@@ -181,7 +181,7 @@ function Stop-ResearchServer {
         $details = Get-ResearchServerDetails -ServerId $ServerId
         $statusProperty = $details.PSObject.Properties['status']
         if ($null -eq $statusProperty) {
-            throw "OpenStack no devolvió el estado de la instancia '$ServerId'."
+            throw "OpenStack no devolvio el estado de la instancia '$ServerId'."
         }
 
         $status = ([string]$statusProperty.Value).ToUpperInvariant()
@@ -195,7 +195,7 @@ function Stop-ResearchServer {
         Start-Sleep -Seconds 5
     } while ((Get-Date) -lt $deadline)
 
-    throw "La instancia '$ServerId' no alcanzó el estado SHUTOFF en $TimeoutSeconds segundos."
+    throw "La instancia '$ServerId' no alcanzo el estado SHUTOFF en $TimeoutSeconds segundos."
 }
 
 function Set-ResearchServerSecurityGroup {

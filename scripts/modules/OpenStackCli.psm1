@@ -13,7 +13,7 @@ function Invoke-OpenStack {
     $output = & openstack @Arguments 2>&1
     if ($LASTEXITCODE -ne 0) {
         $fullCommand = "openstack " + ($Arguments -join " ")
-        throw "Comando OpenStack falló: $fullCommand`n$($output | Out-String)"
+        throw "Comando OpenStack fallo: $fullCommand`n$($output | Out-String)"
     }
 
     if (-not $ExpectJson) {

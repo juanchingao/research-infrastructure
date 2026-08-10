@@ -8,7 +8,7 @@ function Test-SshAvailable {
     $sshCommand = Get-Command ssh -ErrorAction SilentlyContinue
 
     if ($null -eq $sshCommand) {
-        throw "No se encontró el comando ssh en este entorno."
+        throw "No se encontro el comando ssh en este entorno."
     }
 
     return $true
@@ -22,7 +22,7 @@ function Test-ScpAvailable {
     $scpCommand = Get-Command scp -ErrorAction SilentlyContinue
 
     if ($null -eq $scpCommand) {
-        throw "No se encontró el comando scp en este entorno."
+        throw "No se encontro el comando scp en este entorno."
     }
 
     return $true
@@ -44,7 +44,7 @@ function Invoke-ResearchSsh {
     & ssh "$User@$Host"
 
     if ($LASTEXITCODE -ne 0) {
-        throw "La sesión SSH terminó con código $LASTEXITCODE."
+        throw "La sesion SSH termino con codigo $LASTEXITCODE."
     }
 }
 
@@ -82,7 +82,7 @@ function Invoke-ResearchSshCommand {
     }
 
     if ($LASTEXITCODE -ne 0) {
-        throw "El comando SSH remoto terminó con código $LASTEXITCODE."
+        throw "El comando SSH remoto termino con codigo $LASTEXITCODE."
     }
 }
 
@@ -116,7 +116,7 @@ function Copy-ResearchFileToHost {
         "${User}@${Host}:$RemotePath"
 
     if ($LASTEXITCODE -ne 0) {
-        throw "La copia SCP terminó con código $LASTEXITCODE."
+        throw "La copia SCP termino con codigo $LASTEXITCODE."
     }
 }
 
@@ -145,11 +145,11 @@ function Invoke-ResearchSshTunnel {
     $forwardSpec = "127.0.0.1:${LocalPort}:${RemoteHost}:${RemotePort}"
 
     Write-Host ""
-    Write-Host "Abriendo túnel SSH:"
+    Write-Host "Abriendo tunel SSH:"
     Write-Host "  localhost:$LocalPort -> $Host -> ${RemoteHost}:$RemotePort"
     Write-Host ""
-    Write-Host "Mantén esta terminal abierta mientras uses el servicio."
-    Write-Host "Pulsa Ctrl+C para cerrar el túnel."
+    Write-Host "Manten esta terminal abierta mientras uses el servicio."
+    Write-Host "Pulsa Ctrl+C para cerrar el tunel."
     Write-Host ""
 
     & ssh `
@@ -161,7 +161,7 @@ function Invoke-ResearchSshTunnel {
         "$User@$Host"
 
     if ($LASTEXITCODE -ne 0) {
-        throw "El túnel SSH terminó con código $LASTEXITCODE."
+        throw "El tunel SSH termino con codigo $LASTEXITCODE."
     }
 }
 

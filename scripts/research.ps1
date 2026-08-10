@@ -161,13 +161,13 @@ function Find-RemoteLuksDevice {
         [string]$User,
 
         [Parameter(Mandatory = $true)]
-        [string]$Host
+        [string]$RemoteHost
     )
 
     $lines = @(
         Invoke-ResearchSshCommand `
             -User $User `
-            -Host $Host `
+            -Host $RemoteHost `
             -Command "lsblk -pnro NAME,FSTYPE"
     )
 
@@ -187,24 +187,24 @@ function Find-RemoteLuksDevice {
     }
 
     if ($candidates.Count -eq 0) {
-        throw "No se ha encontrado ningún dispositivo LUKS en la VM."
+        throw "No se ha encontrado ningun dispositivo LUKS en la VM."
     }
 
     throw "Se han encontrado varios dispositivos LUKS. No se puede seleccionar uno de forma segura."
 }
 
 function Stop-RemoteResearchServices {
-    param([string]$User, [string]$Host)
+    param([string]$User, [string]$RemoteHost)
 
-    Invoke-ResearchSshCommand -User $User -Host $Host -Command `
+    Invoke-ResearchSshCommand -User $User -Host $RemoteHost -Command `
         "if [ -f /home/$User/research-services/rstudio/compose.yaml ]; then if [ -f /data/.secrets/rstudio.env ]; then docker compose --env-file /data/.secrets/rstudio.env -f /home/$User/research-services/rstudio/compose.yaml down; else docker rm -f research-rstudio 2>/dev/null || true; fi; fi"
 }
 
 function Close-RemoteDataVolume {
-    param([string]$User, [string]$Host, [string]$MountPoint, [string]$MapperName)
+    param([string]$User, [string]$RemoteHost, [string]$MountPoint, [string]$MapperName)
 
-    Stop-RemoteResearchServices -User $User -Host $Host
-    Invoke-ResearchSshCommand -User $User -Host $Host -Command `
+    Stop-RemoteResearchServices -User $User -RemoteHost $RemoteHost
+    Invoke-ResearchSshCommand -User $User -Host $RemoteHost -Command `
         "sync; if mountpoint -q $MountPoint; then if sudo fuser -m $MountPoint; then echo 'Hay procesos usando $MountPoint.' >&2; exit 42; fi; sudo umount $MountPoint; fi; if [ -e /dev/mapper/$MapperName ]; then sudo cryptsetup close $MapperName; fi"
 }
 
@@ -228,15 +228,15 @@ else {
 $mountPoint = $config["data_mount_point"]
 
 
-Write-Section "Validando autenticación OpenStack"
+Write-Section "Validando autenticacion OpenStack"
 $null = Test-OpenStackAuth
-Write-Host "Autenticación OK."
+Write-Host "Autenticacion OK."
 
 
 switch ($Action) {
     "start" {
 
-    Write-Section "Iniciando estación de investigación"
+    Write-Section "Iniciando estacion de investigacion"
 
     Write-Host ""
     Write-Host "Paso 1/4 - Infraestructura OpenStack"
@@ -247,7 +247,7 @@ switch ($Action) {
         -ConfigPath $ConfigPath
 
     if ($LASTEXITCODE -ne 0) {
-        throw "Falló la preparación de la infraestructura."
+        throw "Fallo la preparacion de la infraestructura."
     }
 
 
@@ -260,7 +260,7 @@ switch ($Action) {
         -ConfigPath $ConfigPath
 
     if ($LASTEXITCODE -ne 0) {
-        throw "Falló el montaje del volumen de datos."
+        throw "Fallo el montaje del volumen de datos."
     }
 
 
@@ -273,19 +273,19 @@ switch ($Action) {
         -ConfigPath $ConfigPath
 
     if ($LASTEXITCODE -ne 0) {
-        throw "Falló el despliegue de RStudio."
+        throw "Fallo el despliegue de RStudio."
     }
 
 
-    Write-Section "Estación preparada"
+    Write-Section "Estacion preparada"
 
     Write-Host ""
     Write-Host "VM: lista"
     Write-Host "Datos: desbloqueados y montados"
     Write-Host "RStudio: desplegado"
     Write-Host ""
-    Write-Host "Paso 4/4 - Abriendo túnel"
-    Write-Host "RStudio estará disponible en:"
+    Write-Host "Paso 4/4 - Abriendo tunel"
+    Write-Host "RStudio estara disponible en:"
     Write-Host ""
     Write-Host "    http://localhost:8787"
     Write-Host ""
@@ -333,7 +333,7 @@ switch ($Action) {
                 -PropertyNames @("id", "ID")
 
             if ([string]::IsNullOrWhiteSpace([string]$serverId)) {
-                throw "No se pudo resolver el ID de la instancia recién creada."
+                throw "No se pudo resolver el ID de la instancia recien creada."
             }
 
             Write-Host "Instancia creada: $($config["instance_name"]) ($serverId)"
@@ -401,7 +401,7 @@ switch ($Action) {
 
 
     "init-data" {
-        Write-Section "Inicialización destructiva del volumen de datos"
+        Write-Section "Inicializacion destructiva del volumen de datos"
 
         $server = Get-CurrentServer -Config $config
         if ($null -eq $server) { throw "No existe la instancia. Ejecuta create primero." }
@@ -415,7 +415,7 @@ switch ($Action) {
         $null = Ensure-ResearchVolumeAttached -VolumeId $volumeId -ServerId $serverId
         $device = Get-VolumeAttachmentDevice -VolumeId $volumeId -ServerId $serverId
         if ([string]::IsNullOrWhiteSpace($device)) {
-            throw "OpenStack no informó del dispositivo; se cancela para no formatear un disco ambiguo."
+            throw "OpenStack no informo del dispositivo; se cancela para no formatear un disco ambiguo."
         }
 
         $deviceState = @(Invoke-ResearchSshCommand -User $sshUser -Host $floatingIp -Command "if sudo cryptsetup isLuks $device 2>/dev/null; then echo LUKS; elif sudo wipefs -n $device | grep -q .; then echo IN_USE; else echo BLANK; fi")
@@ -425,7 +425,7 @@ switch ($Action) {
 
         $expected = "INITIALIZE $($config["data_volume_name"])"
         $answer = Read-Host "ESTA OPERACION BORRA EL VOLUMEN. Escribe exactamente: $expected"
-        if ($answer -ne $expected) { throw "Inicialización cancelada." }
+        if ($answer -ne $expected) { throw "Inicializacion cancelada." }
 
         Invoke-ResearchSshCommand -User $sshUser -Host $floatingIp -AllocateTty -Command "sudo cryptsetup luksFormat --type luks2 $device"
         Invoke-ResearchSshCommand -User $sshUser -Host $floatingIp -AllocateTty -Command "sudo cryptsetup open $device $mapperName"
@@ -469,7 +469,7 @@ switch ($Action) {
 
 
         #
-        # Si por algún motivo el volumen está desadjuntado,
+        # Si por algun motivo el volumen esta desadjuntado,
         # lo vuelve a asociar.
         #
         $null = Ensure-ResearchVolumeAttached `
@@ -485,18 +485,18 @@ switch ($Action) {
 
         if ([string]::IsNullOrWhiteSpace([string]$device)) {
 
-            Write-Host "OpenStack no informó del dispositivo. Buscando LUKS dentro de la VM..."
+            Write-Host "OpenStack no informo del dispositivo. Buscando LUKS dentro de la VM..."
 
             $device = Find-RemoteLuksDevice `
                 -User $sshUser `
-                -Host $floatingIp
+                -RemoteHost $floatingIp
         }
 
         Write-Host "Dispositivo de datos: $device"
 
 
         #
-        # Protección: debe ser realmente LUKS.
+        # Proteccion: debe ser realmente LUKS.
         #
         $luksResult = @(
             Invoke-ResearchSshCommand `
@@ -508,7 +508,7 @@ switch ($Action) {
         $isLuks = [string]($luksResult | Select-Object -Last 1)
 
         if ($isLuks.Trim() -ne "YES") {
-            throw "El dispositivo '$device' no contiene una cabecera LUKS válida. Se cancela por seguridad."
+            throw "El dispositivo '$device' no contiene una cabecera LUKS valida. Se cancela por seguridad."
         }
 
 
@@ -525,8 +525,8 @@ switch ($Action) {
 
         if ($mapperState.Trim() -eq "CLOSED") {
 
-            Write-Host "El volumen está cifrado y cerrado."
-            Write-Host "Introduce ahora la contraseña LUKS."
+            Write-Host "El volumen esta cifrado y cerrado."
+            Write-Host "Introduce ahora la contrasena LUKS."
 
             Invoke-ResearchSshCommand `
                 -User $sshUser `
@@ -583,7 +583,7 @@ switch ($Action) {
             -Command "findmnt $mountPoint && df -h $mountPoint"
 
         Write-Host ""
-        Write-Host "Los datos persistentes están disponibles en $mountPoint."
+        Write-Host "Los datos persistentes estan disponibles en $mountPoint."
 
         break
     }
@@ -598,16 +598,16 @@ switch ($Action) {
 
     $mountState = @(Invoke-ResearchSshCommand -User $sshUser -Host $floatingIp -Command "if mountpoint -q $mountPoint; then echo READY; else echo NOT_READY; fi")
     if (([string]($mountState | Select-Object -Last 1)).Trim() -ne "READY") {
-        throw "El volumen no está montado. Ejecuta mount-data primero."
+        throw "El volumen no esta montado. Ejecuta mount-data primero."
     }
 
-    $secretCommand = "umask 077; mkdir -p $mountPoint/.secrets; printf 'Contraseña de RStudio: '; stty -echo; IFS= read -r RSTUDIO_PASSWORD; stty echo; printf '\n'; if [ -z `"`$RSTUDIO_PASSWORD`" ]; then echo 'La contraseña no puede estar vacía.' >&2; exit 2; fi; printf 'RSTUDIO_PASSWORD=%s\n' `"`$RSTUDIO_PASSWORD`" > $mountPoint/.secrets/rstudio.env; chmod 600 $mountPoint/.secrets/rstudio.env"
+    $secretCommand = "umask 077; mkdir -p $mountPoint/.secrets; printf 'Contrasena de RStudio: '; stty -echo; IFS= read -r RSTUDIO_PASSWORD; stty echo; printf '\n'; if [ -z `"`$RSTUDIO_PASSWORD`" ]; then echo 'La contrasena no puede estar vacia.' >&2; exit 2; fi; printf 'RSTUDIO_PASSWORD=%s\n' `"`$RSTUDIO_PASSWORD`" > $mountPoint/.secrets/rstudio.env; chmod 600 $mountPoint/.secrets/rstudio.env"
     Invoke-ResearchSshCommand -User $sshUser -Host $floatingIp -Command $secretCommand -AllocateTty
     Write-Host "Secreto creado con permisos 0600 dentro del volumen cifrado."
     break
 }
     "stop" {
-        Write-Section "Deteniendo estación de investigación"
+        Write-Section "Deteniendo estacion de investigacion"
 
         $server = Get-CurrentServer -Config $config
         if ($null -eq $server) {
@@ -623,13 +623,13 @@ switch ($Action) {
         if ($status -eq "ACTIVE") {
             $floatingIp = Get-PreferredFloatingIp -ServerId $serverId
             if ([string]::IsNullOrWhiteSpace($floatingIp)) {
-                throw "La instancia está activa pero no tiene floating IP; no se puede cerrar /data de forma segura."
+                throw "La instancia esta activa pero no tiene floating IP; no se puede cerrar /data de forma segura."
             }
 
             Write-Section "Cerrando servicios y volumen de datos"
             Close-RemoteDataVolume `
                 -User $sshUser `
-                -Host $floatingIp `
+                -RemoteHost $floatingIp `
                 -MountPoint $mountPoint `
                 -MapperName $mapperName
 
@@ -642,7 +642,7 @@ switch ($Action) {
         Write-Section "Apagando instancia"
         $null = Stop-ResearchServer -ServerId $serverId
 
-        Write-Section "Estación detenida"
+        Write-Section "Estacion detenida"
         Write-Host "VM: apagada"
         Write-Host "Volumen Cinder: conservado"
         Write-Host "Floating IP: conservada"
@@ -678,7 +678,7 @@ switch ($Action) {
 
 
     #
-    # 2. Comprobar que /data está desbloqueado y montado
+    # 2. Comprobar que /data esta desbloqueado y montado
     #
     Write-Section "Comprobando volumen de datos"
 
@@ -692,10 +692,10 @@ switch ($Action) {
     $dataStatus = [string]($dataState | Select-Object -Last 1)
 
     if ($dataStatus.Trim() -ne "READY") {
-        throw "El volumen de datos no está montado. Ejecuta primero: .\scripts\research.ps1 mount-data"
+        throw "El volumen de datos no esta montado. Ejecuta primero: .\scripts\research.ps1 mount-data"
     }
 
-    Write-Host "$mountPoint está montado."
+    Write-Host "$mountPoint esta montado."
 
 
     #
@@ -711,7 +711,7 @@ switch ($Action) {
     $secretStatus = [string]($secretState | Select-Object -Last 1)
 
     if ($secretStatus.Trim() -ne "READY") {
-        throw "No existe /data/.secrets/rstudio.env o está vacío."
+        throw "No existe /data/.secrets/rstudio.env o esta vacio."
     }
 
     Write-Host "Secreto de RStudio disponible."
@@ -741,7 +741,7 @@ switch ($Action) {
         -Host $floatingIp `
         -Command "sudo install -d -m 2775 -o 1000 -g 1000 /data/.cache/renv"
 
-    Write-Host "Caché renv persistente disponible."
+    Write-Host "Cache renv persistente disponible."
 
 
     #
@@ -775,7 +775,7 @@ switch ($Action) {
     #
     # 7. Crear directorio remoto
     #
-    Write-Section "Sincronizando configuración"
+    Write-Section "Sincronizando configuracion"
 
     Invoke-ResearchSshCommand `
         -User $sshUser `
@@ -822,7 +822,7 @@ switch ($Action) {
 
 
     #
-    # 11. Verificar que el contenedor está en ejecución
+    # 11. Verificar que el contenedor esta en ejecucion
     #
     Write-Section "Verificando RStudio"
 
@@ -836,10 +836,10 @@ switch ($Action) {
     $running = [string]($containerState | Select-Object -Last 1)
 
     if ($running.Trim() -ne "true") {
-        throw "El contenedor research-rstudio no está ejecutándose correctamente."
+        throw "El contenedor research-rstudio no esta ejecutandose correctamente."
     }
 
-    Write-Host "Contenedor research-rstudio en ejecución."
+    Write-Host "Contenedor research-rstudio en ejecucion."
 
 
     #
@@ -855,7 +855,7 @@ switch ($Action) {
     $httpStatus = [string]($httpState | Select-Object -Last 1)
 
     if ($httpStatus.Trim() -ne "READY") {
-        throw "RStudio está arrancado pero no responde en 127.0.0.1:8787."
+        throw "RStudio esta arrancado pero no responde en 127.0.0.1:8787."
     }
 
 
@@ -885,7 +885,7 @@ switch ($Action) {
     if ($null -eq $volume) { throw "No existe el volumen configurado." }
     $volumeId = Get-ObjectPropertyValue -Object $volume -PropertyNames @("ID", "id")
 
-    Close-RemoteDataVolume -User $sshUser -Host $floatingIp -MountPoint $mountPoint -MapperName $mapperName
+    Close-RemoteDataVolume -User $sshUser -RemoteHost $floatingIp -MountPoint $mountPoint -MapperName $mapperName
     Remove-ResearchVolumeFromServer -VolumeId $volumeId -ServerId $serverId
     try {
         $snapshotName = "$($config["data_volume_name"])-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
@@ -902,7 +902,7 @@ switch ($Action) {
 }
 
 "check-r" {
-    Write-Section "Comprobación ligera de R y repositorios"
+    Write-Section "Comprobacion ligera de R y repositorios"
     $server = Get-CurrentServer -Config $config
     if ($null -eq $server) { throw "No existe la instancia." }
     $serverId = Get-ObjectPropertyValue -Object $server -PropertyNames @("ID", "id")
@@ -945,7 +945,7 @@ cat("\nOK: R, CRAN, Posit binaries, renv and persistent cache are operational.\n
     if ($null -eq $volume) { throw "No existe el volumen configurado." }
     $volumeId = Get-ObjectPropertyValue -Object $volume -PropertyNames @("ID", "id")
 
-    Close-RemoteDataVolume -User $sshUser -Host $floatingIp -MountPoint $mountPoint -MapperName $mapperName
+    Close-RemoteDataVolume -User $sshUser -RemoteHost $floatingIp -MountPoint $mountPoint -MapperName $mapperName
     Remove-ResearchVolumeFromServer -VolumeId $volumeId -ServerId $serverId
     try {
         $backupName = "$($config["data_volume_name"])-backup-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
@@ -963,7 +963,7 @@ cat("\nOK: R, CRAN, Posit binaries, renv and persistent cache are operational.\n
 
 "tunnel" {
 
-    Write-Section "Preparando túnel RStudio"
+    Write-Section "Preparando tunel RStudio"
 
     $server = Get-CurrentServer -Config $config
 
@@ -999,7 +999,7 @@ cat("\nOK: R, CRAN, Posit binaries, renv and persistent cache are operational.\n
     $serviceStatus = [string]($serviceState | Select-Object -Last 1)
 
     if ($serviceStatus.Trim() -ne "READY") {
-        throw "RStudio no está disponible. Ejecuta primero: .\scripts\research.ps1 deploy-rstudio"
+        throw "RStudio no esta disponible. Ejecuta primero: .\scripts\research.ps1 deploy-rstudio"
     }
 
 
@@ -1070,7 +1070,7 @@ cat("\nOK: R, CRAN, Posit binaries, renv and persistent cache are operational.\n
             Write-Host "Volumen: $($config["data_volume_name"])"
             Write-Host "Volumen ID: $volumeId"
             Write-Host "Volumen estado: $($volumeDetails.status)"
-            Write-Host "Volumen tamaño: $($volumeDetails.size) GB"
+            Write-Host "Volumen tamano: $($volumeDetails.size) GB"
             Write-Host "Asociado a esta VM: $attached"
         }
 
@@ -1123,10 +1123,10 @@ cat("\nOK: R, CRAN, Posit binaries, renv and persistent cache are operational.\n
 
         if (-not $Force) {
 
-            $answer = Read-Host "Confirma destrucción de '$($server.Name)' escribiendo YES"
+            $answer = Read-Host "Confirma destruccion de '$($server.Name)' escribiendo YES"
 
             if ($answer -ne "YES") {
-                throw "Operación cancelada."
+                throw "Operacion cancelada."
             }
         }
 
@@ -1149,7 +1149,7 @@ cat("\nOK: R, CRAN, Posit binaries, renv and persistent cache are operational.\n
             if ($attached) {
 
                 #
-                # Primero hacemos el equivalente automático de:
+                # Primero hacemos el equivalente automatico de:
                 #
                 # umount /data
                 # cryptsetup close research-data
@@ -1164,7 +1164,7 @@ cat("\nOK: R, CRAN, Posit binaries, renv and persistent cache are operational.\n
 
                 Close-RemoteDataVolume `
                     -User $sshUser `
-                    -Host $floatingIp `
+                    -RemoteHost $floatingIp `
                     -MountPoint $mountPoint `
                     -MapperName $mapperName
 

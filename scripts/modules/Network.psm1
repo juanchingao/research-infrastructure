@@ -7,7 +7,7 @@ function Get-ServerFloatingIps {
         [string]$ServerId
     )
 
-    # Una floating IP está asociada a un puerto de red, no directamente
+    # Una floating IP esta asociada a un puerto de red, no directamente
     # al servidor. Primero obtenemos todos los puertos de la VM.
     $ports = Invoke-OpenStack -Arguments @(
         "port",
@@ -156,7 +156,7 @@ function Remove-ServerFloatingIps {
             $ip
         )
 
-        # Opcionalmente eliminar también la floating IP del proyecto.
+        # Opcionalmente eliminar tambien la floating IP del proyecto.
         if ($DeleteAfterDetach) {
 
             $id = $item.ID

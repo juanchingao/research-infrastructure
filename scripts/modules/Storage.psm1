@@ -31,7 +31,7 @@ function Get-ResearchVolumeByName {
     }
 
     if ($matches.Count -gt 1) {
-        throw "Existe más de un volumen con el nombre '$Name'."
+        throw "Existe mas de un volumen con el nombre '$Name'."
     }
 
     return $matches[0]
@@ -149,7 +149,7 @@ function Ensure-ResearchVolume {
     }
 
     if ([string]::IsNullOrWhiteSpace($volumeId)) {
-        throw "No se pudo resolver el ID del volumen recién creado."
+        throw "No se pudo resolver el ID del volumen recien creado."
     }
 
     return Wait-ResearchVolumeStatus `
@@ -207,11 +207,11 @@ function Ensure-ResearchVolumeAttached {
     $attachments = @($details.attachments)
 
     if ($attachments.Count -gt 0) {
-        throw "El volumen '$VolumeId' ya está adjunto a otro servidor."
+        throw "El volumen '$VolumeId' ya esta adjunto a otro servidor."
     }
 
     if ([string]$details.status -ne "available") {
-        throw "El volumen '$VolumeId' no está disponible para adjuntar. Estado actual: $($details.status)"
+        throw "El volumen '$VolumeId' no esta disponible para adjuntar. Estado actual: $($details.status)"
     }
 
     $null = Invoke-OpenStack -Arguments @(
@@ -236,7 +236,7 @@ function Ensure-ResearchVolumeAttached {
         Start-Sleep -Seconds 3
     }
 
-    throw "Timeout esperando la asociación del volumen '$VolumeId' con el servidor '$ServerId'."
+    throw "Timeout esperando la asociacion del volumen '$VolumeId' con el servidor '$ServerId'."
 }
 
 
