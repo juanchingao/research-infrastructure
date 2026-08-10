@@ -61,10 +61,22 @@ RStudio queda disponible en <http://localhost:8787>.
 
 `start` crea o reconcilia recursos, monta un volumen LUKS ya inicializado, despliega RStudio y mantiene abierto el túnel SSH. No inicializa discos ni crea secretos automáticamente.
 
+Al terminar, cierra el túnel con `Ctrl+C` y ejecuta:
+
+```powershell
+.\scripts\research.ps1 stop
+```
+
+`stop` detiene RStudio, comprueba que `/data` no esté en uso, desmonta el
+filesystem, cierra LUKS y espera a que OpenStack deje la VM en `SHUTOFF`. Es
+idempotente y conserva la VM, el volumen y la floating IP. Cerrar solo el túnel
+no detiene el consumo de cómputo.
+
 Comandos individuales:
 
 | Comando | Función |
 |---|---|
+| `stop` | Cierra servicios y LUKS y apaga la VM conservando sus recursos |
 | `create` | Garantiza VM, volumen, floating IP y security group |
 | `status` | Consulta VM y volumen |
 | `mount-data` | Desbloquea LUKS y monta `/data` |

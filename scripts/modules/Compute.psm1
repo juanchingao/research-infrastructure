@@ -147,6 +147,57 @@ function Ensure-ResearchServerRunning {
     return Wait-ResearchServerActive -ServerId $ServerId
 }
 
+function Stop-ResearchServer {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$ServerId,
+        [Parameter(Mandatory = $false)][int]$TimeoutSeconds = 300
+    )
+
+    $details = Get-ResearchServerDetails -ServerId $ServerId
+    $statusProperty = $details.PSObject.Properties['status']
+    if ($null -eq $statusProperty) {
+        throw "OpenStack no devolvió el estado de la instancia '$ServerId'."
+    }
+
+    $status = ([string]$statusProperty.Value).ToUpperInvariant()
+    if ($status -eq 'SHUTOFF') {
+        Write-Host "La instancia ya está apagada."
+        return $details
+    }
+    if ($status -in @('SHELVED', 'SHELVED_OFFLOADED')) {
+        Write-Host "La instancia ya está en estado $status y no consume cómputo activo."
+        return $details
+    }
+    if ($status -ne 'ACTIVE') {
+        throw "No se puede apagar de forma segura la instancia desde el estado '$status'."
+    }
+
+    Write-Host "Solicitando apagado de la instancia."
+    $null = Invoke-OpenStack -Arguments @('server', 'stop', $ServerId)
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+
+    do {
+        $details = Get-ResearchServerDetails -ServerId $ServerId
+        $statusProperty = $details.PSObject.Properties['status']
+        if ($null -eq $statusProperty) {
+            throw "OpenStack no devolvió el estado de la instancia '$ServerId'."
+        }
+
+        $status = ([string]$statusProperty.Value).ToUpperInvariant()
+        if ($status -eq 'SHUTOFF') {
+            return $details
+        }
+        if ($status -eq 'ERROR') {
+            throw "La instancia '$ServerId' ha entrado en estado ERROR durante el apagado."
+        }
+
+        Start-Sleep -Seconds 5
+    } while ((Get-Date) -lt $deadline)
+
+    throw "La instancia '$ServerId' no alcanzó el estado SHUTOFF en $TimeoutSeconds segundos."
+}
+
 function Set-ResearchServerSecurityGroup {
     [CmdletBinding()]
     param(
@@ -173,4 +224,4 @@ function Set-ResearchServerSecurityGroup {
     }
 }
 
-Export-ModuleMember -Function Get-ResearchServerByName, New-ResearchServer, Remove-ResearchServer, Get-ResearchServerDetails, Ensure-ResearchServerRunning, Set-ResearchServerSecurityGroup
+Export-ModuleMember -Function Get-ResearchServerByName, New-ResearchServer, Remove-ResearchServer, Get-ResearchServerDetails, Ensure-ResearchServerRunning, Stop-ResearchServer, Set-ResearchServerSecurityGroup

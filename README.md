@@ -250,6 +250,18 @@ http://localhost:8787
 
 Si el volumen LUKS está cerrado se solicitará la contraseña de forma interactiva.
 
+Al terminar el trabajo, cierre el túnel con `Ctrl+C` y apague la estación de
+forma segura para dejar de consumir cómputo:
+
+```powershell
+.\scripts\research.ps1 stop
+```
+
+`stop` detiene RStudio, aborta si `/data` sigue en uso, desmonta el filesystem,
+cierra LUKS, solicita el apagado de OpenStack y espera a `SHUTOFF`. Conserva la
+VM, el volumen Cinder y la floating IP. Es idempotente: si la VM ya está apagada
+no intenta conectar por SSH ni repite el apagado.
+
 ---
 
 # Comandos disponibles
@@ -392,6 +404,25 @@ Para cerrarlo:
 ```text
 Ctrl+C
 ```
+
+Cerrar el túnel no apaga la VM. Para detener el consumo de cómputo ejecute a
+continuación:
+
+```powershell
+.\scripts\research.ps1 stop
+```
+
+---
+
+## Apagar la estación conservando la VM
+
+```powershell
+.\scripts\research.ps1 stop
+```
+
+Este es el cierre cotidiano recomendado. Detiene servicios y cierra `/data` y
+LUKS antes de llevar la instancia a `SHUTOFF`. El siguiente `start` volverá a
+arrancarla automáticamente.
 
 ---
 

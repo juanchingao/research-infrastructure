@@ -9,6 +9,13 @@
       "problemMatcher": []
     },
     {
+      "label": "Research: Stop",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\scripts\\research.ps1", "stop"],
+      "problemMatcher": []
+    },
+    {
       "label": "Research: Create",
       "type": "shell",
       "command": "powershell",

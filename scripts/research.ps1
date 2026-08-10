@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory = $true, Position = 0)]
 [ValidateSet(
     "start",
+    "stop",
     "create",
     "status",
     "init-data",
@@ -605,6 +606,48 @@ switch ($Action) {
     Write-Host "Secreto creado con permisos 0600 dentro del volumen cifrado."
     break
 }
+    "stop" {
+        Write-Section "Deteniendo estación de investigación"
+
+        $server = Get-CurrentServer -Config $config
+        if ($null -eq $server) {
+            Write-Host "La instancia no existe; no hay nada que detener."
+            break
+        }
+
+        $serverId = Get-ObjectPropertyValue -Object $server -PropertyNames @("ID", "id")
+        $details = Get-ResearchServerDetails -ServerId $serverId
+        $status = [string](Get-ObjectPropertyValue -Object $details -PropertyNames @("status", "Status"))
+        $status = $status.ToUpperInvariant()
+
+        if ($status -eq "ACTIVE") {
+            $floatingIp = Get-PreferredFloatingIp -ServerId $serverId
+            if ([string]::IsNullOrWhiteSpace($floatingIp)) {
+                throw "La instancia está activa pero no tiene floating IP; no se puede cerrar /data de forma segura."
+            }
+
+            Write-Section "Cerrando servicios y volumen de datos"
+            Close-RemoteDataVolume `
+                -User $sshUser `
+                -Host $floatingIp `
+                -MountPoint $mountPoint `
+                -MapperName $mapperName
+
+            Write-Host "Servicios detenidos, filesystem desmontado y LUKS cerrado."
+        }
+        elseif ($status -notin @("SHUTOFF", "SHELVED", "SHELVED_OFFLOADED")) {
+            throw "No se puede realizar un cierre seguro desde el estado '$status'."
+        }
+
+        Write-Section "Apagando instancia"
+        $null = Stop-ResearchServer -ServerId $serverId
+
+        Write-Section "Estación detenida"
+        Write-Host "VM: apagada"
+        Write-Host "Volumen Cinder: conservado"
+        Write-Host "Floating IP: conservada"
+        break
+    }
 
 "deploy-rstudio" {
 
