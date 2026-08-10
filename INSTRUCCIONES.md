@@ -1,94 +1,137 @@
-# INSTRUCCIONES (primera iteración)
+# Instrucciones de operación
 
-Esta guía está pensada para ejecutar la infraestructura desde Windows + VS Code + PowerShell.
+Esta guía describe el estado actual de la infraestructura. Los comandos se ejecutan desde Windows, en la raíz del repositorio, con PowerShell y una sesión autenticada de OpenStack.
 
-## 1) Preparación inicial (una sola vez)
+## 1. Preparación local
 
-1. Verifica OpenStack CLI:
-   ```powershell
-   openstack --version
-   ```
-2. Verifica autenticación activa:
-   ```powershell
-   openstack token issue
-   ```
-3. Copia la configuración local:
-   - de [config/infrastructure.local.example.yaml](/C:/GitProjects/research-infrastructure/config/infrastructure.local.example.yaml)
-   - a `config/infrastructure.local.yaml` (este archivo queda fuera de Git).
-4. Edita `config/infrastructure.local.yaml` y cambia `keypair` por uno real de OpenStack.
-
-## 2) Crear la VM
-
-Desde la raíz del repo:
+1. Comprueba las herramientas:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\research.ps1 create
+openstack --version
+ssh -V
 ```
 
-Qué hace:
-
-1. Comprueba autenticación OpenStack.
-2. Garantiza `research-workstation` (sin reglas avanzadas aún).
-3. Crea la VM Ubuntu2404 si no existe.
-4. Asigna floating IP.
-5. Muestra comandos de verificación de cloud-init y Docker.
-
-En esta primera iteración, la VM se crea con `bootstrap_security_group: default`
-para asegurar conectividad SSH mientras se define el CIDR oficial de acceso.
-
-## 3) Ver estado
+2. Carga las variables `OS_*` fuera del repositorio y valida la sesión:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\research.ps1 status
+openstack token issue
 ```
 
-Muestra: nombre, ID, estado, redes y floating IP.
+3. Copia `config/infrastructure.local.example.yaml` a `config/infrastructure.local.yaml`.
+4. Configura un `keypair` real y `research_ssh_cidr` con la IP/CIDR desde la que te conectarás. Para una sola IP utiliza `A.B.C.D/32`.
 
-## 4) Conectar por SSH
+El valor `203.0.113.10/32` del ejemplo es documental y debe sustituirse.
+
+## 2. Primer despliegue
+
+Crea la VM, el security group restringido, la floating IP y el volumen:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\research.ps1 ssh
+.\scripts\research.ps1 create
 ```
 
-Requiere que tu clave privada esté en tu equipo (nunca en Git).
-
-## 5) Destruir VM (sin borrar datos externos)
+En un volumen nuevo y vacío, ejecuta una única vez:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\research.ps1 destroy
+.\scripts\research.ps1 init-data
 ```
 
-- Solicita confirmación (`YES`).
-- Desasocia floating IP.
-- Elimina solo la instancia.
-- No gestiona todavía volumen de datos persistente (se implementará en iteración siguiente).
+`init-data` es destructivo. Solo continúa si OpenStack identifica inequívocamente el dispositivo, este no contiene LUKS ni otro filesystem y se escribe exactamente `INITIALIZE <nombre-del-volumen>`. Después solicita interactivamente la contraseña LUKS, crea ext4 y prepara los directorios persistentes.
 
-## 6) Usar tareas de VS Code
+Crea o rota el secreto de RStudio sin mostrar la contraseña:
 
-En VS Code: `Terminal -> Run Task` y ejecuta:
+```powershell
+.\scripts\research.ps1 configure-rstudio
+```
 
-- `Research: Create`
-- `Research: Status`
-- `Research: SSH`
-- `Research: Destroy`
+Despliega RStudio y abre el túnel:
 
-## 7) Problemas comunes
+```powershell
+.\scripts\research.ps1 deploy-rstudio
+.\scripts\research.ps1 tunnel
+```
 
-1. **Error de autenticación OpenStack**  
-   Reexporta variables `OS_*` o revisa tu contexto de login.
-2. **`keypair` no válido**  
-   Ajusta `config/infrastructure.local.yaml` con un keypair existente en tu proyecto OpenStack.
-3. **Sin SSH**  
-   Espera a que cloud-init termine:
-   ```bash
-   cloud-init status --wait
-   ```
-4. **No hay floating IP disponible**  
-   El script intentará crear una nueva en la red externa configurada.
+RStudio queda disponible en <http://localhost:8787>.
 
-## 8) Seguridad en esta iteración
+## 3. Uso cotidiano
 
-- No hay secretos en Git.
-- No se exponen servicios científicos.
-- El acceso operativo se basa en SSH.
-- El endurecimiento final del security group depende del CIDR oficial de VPN/universidad.
+```powershell
+.\scripts\research.ps1 start
+```
+
+`start` crea o reconcilia recursos, monta un volumen LUKS ya inicializado, despliega RStudio y mantiene abierto el túnel SSH. No inicializa discos ni crea secretos automáticamente.
+
+Comandos individuales:
+
+| Comando | Función |
+|---|---|
+| `create` | Garantiza VM, volumen, floating IP y security group |
+| `status` | Consulta VM y volumen |
+| `mount-data` | Desbloquea LUKS y monta `/data` |
+| `configure-rstudio` | Crea o rota `rstudio.env` con modo 0600 |
+| `deploy-rstudio` | Construye y despliega RStudio |
+| `tunnel` | Abre `localhost:8787` mediante SSH |
+| `ssh` | Abre una sesión SSH |
+| `snapshot-data` | Crea un snapshot Cinder offline |
+| `backup-data` | Crea un backup Cinder offline si el proveedor lo soporta |
+| `destroy` | Elimina la VM y conserva el volumen |
+
+## 4. Snapshot y restauración
+
+Crea un snapshot consistente con los servicios detenidos:
+
+```powershell
+.\scripts\research.ps1 snapshot-data
+```
+
+El comando detiene RStudio, ejecuta `sync`, comprueba que no queden procesos usando `/data`, desmonta, cierra LUKS, desadjunta el volumen, crea el snapshot y vuelve a adjuntar el volumen. Después hay que ejecutar `mount-data` y `deploy-rstudio`.
+
+Lista los snapshots:
+
+```powershell
+openstack volume snapshot list --volume research-data-01
+```
+
+Para restaurar sin sobrescribir el volumen original:
+
+```powershell
+openstack volume create --snapshot <SNAPSHOT_ID> research-data-restore-YYYYMMDD
+```
+
+La restauración debe hacerse siempre en un volumen nuevo. Verifica que puede desbloquearse, montarse y que los datos son íntegros antes de retirar ningún volumen anterior.
+
+Los snapshots del mismo backend no sustituyen una copia independiente. Si el proveedor ofrece Cinder Backup, configura además una política de backups en almacenamiento separado y realiza pruebas periódicas de restauración.
+
+```powershell
+.\scripts\research.ps1 backup-data
+openstack volume backup list
+openstack volume backup restore <BACKUP_ID> <VOLUME_ID_NUEVO>
+```
+
+La disponibilidad y el destino físico de Cinder Backup dependen del proveedor. Confirma que el backend es independiente y ensaya siempre la restauración sobre un volumen nuevo.
+
+## 5. Destrucción segura
+
+```powershell
+.\scripts\research.ps1 destroy
+```
+
+El comando exige escribir `YES`, detiene RStudio, aborta si quedan procesos usando `/data`, desmonta, cierra LUKS, desadjunta el volumen, libera la floating IP según configuración y elimina la VM. El volumen y los snapshots se conservan.
+
+## 6. Seguridad
+
+- No almacenes contraseñas, tokens, claves privadas, `clouds.yaml` ni configuración local en Git.
+- Mantén `research_ssh_cidr` tan estrecho como sea posible.
+- El security group de investigación sustituye al grupo de bootstrap después de crear o reconciliar la VM.
+- RStudio solo publica en `127.0.0.1` y se accede mediante túnel SSH.
+- Verifica cualquier cambio de clave SSH de host después de recrear una VM antes de ejecutar `ssh-keygen -R <IP>`.
+- Conserva la contraseña LUKS en un gestor de contraseñas seguro; perderla hace irrecuperables los datos.
+
+## 7. Problemas comunes
+
+- **Falta `research_ssh_cidr`:** añádelo a `config/infrastructure.local.yaml`.
+- **El volumen ya contiene LUKS:** no uses `init-data`; usa `mount-data`.
+- **Dispositivo ambiguo:** el script cancela la inicialización; revisa el attachment en OpenStack.
+- **`/data` ocupado:** detén procesos o contenedores antes de repetir snapshot o destroy.
+- **Cambio de host SSH:** confirma que la VM acaba de recrearse y elimina únicamente la entrada de esa IP.
+- **Snapshot no soportado:** confirma que el servicio Cinder del proveedor permite snapshots y que existe cuota.

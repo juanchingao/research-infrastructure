@@ -4,11 +4,12 @@
 keypair: 2026-08PortatilURJC
 instance_name: research-ws-dev
 floating_ip_delete_on_destroy: false
+research_ssh_cidr: 203.0.113.10/32
 
 # Persistent research storage
 data_volume_name: research-data-01
 data_volume_size_gb: 200
 data_volume_type: __DEFAULT__
 data_volume_availability_zone: nova
+data_mapper_name: research-data
 data_mount_point: /data
-data_volume_delete_on_destroy: false

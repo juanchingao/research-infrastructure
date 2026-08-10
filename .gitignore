@@ -1,0 +1,42 @@
+# Local env files
+.env
+.env.*
+!.env.example
+
+# OpenStack auth/context
+clouds.yaml
+openrc
+*.openrc
+config/clouds.yaml
+config/infrastructure.local.yaml
+config/*.local.ps1
+config/*auth*.ps1
+
+# Secrets and tokens
+*token*
+*secret*
+secrets/
+
+# SSH private keys
+id_rsa
+id_ed25519
+*.pem
+*.ppk
+*.key
+
+# Terraform/OpenTofu state (future-proof)
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Python cache
+__pycache__/
+*.pyc
+
+# VS Code local
+.vscode/*.local.json
+
+# Keep versioned examples
+!config/*.example.yaml
+config/openstack-auth.local.ps1

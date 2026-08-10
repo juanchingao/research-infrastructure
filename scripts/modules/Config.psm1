@@ -107,9 +107,17 @@ function Get-ResearchConfig {
         "availability_zone",
         "external_network",
         "bootstrap_security_group",
+        "research_security_group",
+        "research_ssh_cidr",
         "ssh_user",
         "keypair",
-        "cloud_init_file"
+        "cloud_init_file",
+        "data_volume_name",
+        "data_volume_size_gb",
+        "data_volume_type",
+        "data_volume_availability_zone",
+        "data_mapper_name",
+        "data_mount_point"
     )
 
     foreach ($key in $requiredKeys) {
@@ -120,6 +128,31 @@ function Get-ResearchConfig {
 
     if ($config["keypair"] -eq "CHANGE_ME_OPENSTACK_KEYPAIR" -or $config["keypair"] -eq "REEMPLAZAR_POR_TU_KEYPAIR") {
         throw "Debes configurar un keypair válido en config\infrastructure.local.yaml."
+    }
+
+    if ($config["research_ssh_cidr"] -eq "CHANGE_ME_SSH_CIDR") {
+        throw "Debes configurar research_ssh_cidr con tu IP o CIDR autorizado."
+    }
+
+    $cidrAddress = $config["research_ssh_cidr"] -replace "/.*$", ""
+    $parsedAddress = $null
+    if ($config["research_ssh_cidr"] -notmatch "^.+/(\d|[12]\d|3[0-2])$" -or
+        -not [System.Net.IPAddress]::TryParse($cidrAddress, [ref]$parsedAddress) -or
+        $parsedAddress.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) {
+        throw "research_ssh_cidr no es un CIDR IPv4 válido: $($config["research_ssh_cidr"])"
+    }
+
+    $sizeGb = 0
+    if (-not [int]::TryParse($config["data_volume_size_gb"], [ref]$sizeGb) -or $sizeGb -le 0) {
+        throw "data_volume_size_gb debe ser un entero positivo."
+    }
+
+    if ($config["data_mapper_name"] -notmatch "^[A-Za-z0-9_.-]+$") {
+        throw "data_mapper_name contiene caracteres no permitidos."
+    }
+
+    if (-not $config["data_mount_point"].StartsWith("/") -or $config["data_mount_point"] -match "[\s;&|`$<>]") {
+        throw "data_mount_point debe ser una ruta absoluta sin caracteres de shell."
     }
 
     $cloudInitPath = $config["cloud_init_file"]

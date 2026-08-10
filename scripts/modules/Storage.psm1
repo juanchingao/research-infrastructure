@@ -120,13 +120,11 @@ function Ensure-ResearchVolume {
         return $details
     }
 
-    $created = Invoke-OpenStack -Arguments @(
+    $createArguments = @(
         "volume",
         "create",
         "--size",
         "$SizeGb",
-        "--type",
-        $VolumeType,
         "--availability-zone",
         $AvailabilityZone,
         "--description",
@@ -135,7 +133,14 @@ function Ensure-ResearchVolume {
         $Name,
         "-f",
         "json"
-    ) -ExpectJson
+    )
+
+    if ($VolumeType -ne "__DEFAULT__") {
+        $createArguments = @("volume", "create", "--size", "$SizeGb", "--type", $VolumeType) +
+            $createArguments[4..($createArguments.Count - 1)]
+    }
+
+    $created = Invoke-OpenStack -Arguments $createArguments -ExpectJson
 
     $volumeId = $created.id
 
@@ -265,6 +270,63 @@ function Remove-ResearchVolumeFromServer {
         -ExpectedStatus @("available")
 }
 
+function New-ResearchVolumeSnapshot {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$VolumeId,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $false)][int]$TimeoutSeconds = 600
+    )
+
+    $created = Invoke-OpenStack -Arguments @(
+        "volume", "snapshot", "create", "--volume", $VolumeId,
+        "--description", "Offline research data snapshot",
+        $Name, "-f", "json"
+    ) -ExpectJson
+
+    $snapshotId = if ($created.id) { $created.id } else { $created.ID }
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+
+    while ((Get-Date) -lt $deadline) {
+        $snapshot = Invoke-OpenStack -Arguments @(
+            "volume", "snapshot", "show", $snapshotId, "-f", "json"
+        ) -ExpectJson
+        if ([string]$snapshot.status -eq "available") { return $snapshot }
+        if ([string]$snapshot.status -eq "error") { throw "El snapshot '$snapshotId' ha entrado en estado error." }
+        Start-Sleep -Seconds 5
+    }
+
+    throw "Timeout esperando al snapshot '$snapshotId'."
+}
+
+function New-ResearchVolumeBackup {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$VolumeId,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $false)][int]$TimeoutSeconds = 3600
+    )
+
+    $created = Invoke-OpenStack -Arguments @(
+        "volume", "backup", "create", "--name", $Name,
+        "--description", "Offline independent research data backup",
+        $VolumeId, "-f", "json"
+    ) -ExpectJson
+    $backupId = if ($created.id) { $created.id } else { $created.ID }
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+
+    while ((Get-Date) -lt $deadline) {
+        $backup = Invoke-OpenStack -Arguments @(
+            "volume", "backup", "show", $backupId, "-f", "json"
+        ) -ExpectJson
+        if ([string]$backup.status -eq "available") { return $backup }
+        if ([string]$backup.status -eq "error") { throw "El backup '$backupId' ha entrado en estado error." }
+        Start-Sleep -Seconds 10
+    }
+
+    throw "Timeout esperando al backup '$backupId'."
+}
+
 
 Export-ModuleMember -Function `
     Get-ResearchVolumeByName, `
@@ -272,4 +334,6 @@ Export-ModuleMember -Function `
     Ensure-ResearchVolume, `
     Ensure-ResearchVolumeAttached, `
     Test-ResearchVolumeAttachedToServer, `
-    Remove-ResearchVolumeFromServer
+    Remove-ResearchVolumeFromServer, `
+    New-ResearchVolumeSnapshot, `
+    New-ResearchVolumeBackup

@@ -1,0 +1,94 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Research: Start",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\scripts\\research.ps1", "start"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Research: Create",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\research.ps1",
+        "create"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Research: Status",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\research.ps1",
+        "status"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Research: Init Data",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\scripts\\research.ps1", "init-data"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Research: Configure RStudio",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\scripts\\research.ps1", "configure-rstudio"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Research: Snapshot Data",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\scripts\\research.ps1", "snapshot-data"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Research: Backup Data",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\scripts\\research.ps1", "backup-data"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Research: SSH",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\research.ps1",
+        "ssh"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Research: Destroy",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\research.ps1",
+        "destroy"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}
+

@@ -7,7 +7,16 @@ availability_zone: nova
 external_network: public
 bootstrap_security_group: default
 research_security_group: research-workstation
+research_ssh_cidr: CHANGE_ME_SSH_CIDR
 ssh_user: ubuntu
 keypair: CHANGE_ME_OPENSTACK_KEYPAIR
 cloud_init_file: cloud/cloud-init.base.yaml
 floating_ip_delete_on_destroy: false
+
+# Persistent storage
+data_volume_name: research-data-01
+data_volume_size_gb: 200
+data_volume_type: __DEFAULT__
+data_volume_availability_zone: nova
+data_mapper_name: research-data
+data_mount_point: /data

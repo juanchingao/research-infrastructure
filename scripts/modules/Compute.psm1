@@ -36,7 +36,7 @@ function New-ResearchServer {
         "--image", $Config["image"],
         "--flavor", $Config["flavor"],
         "--network", $Config["network"],
-        "--security-group", $Config["bootstrap_security_group"],
+        "--security-group", $Config["research_security_group"],
         "--key-name", $Config["keypair"],
         "--availability-zone", $Config["availability_zone"],
         "--user-data", $Config["cloud_init_file"],
@@ -68,4 +68,30 @@ function Get-ResearchServerDetails {
     return Invoke-OpenStack -Arguments @("server", "show", $ServerId, "-f", "json") -ExpectJson
 }
 
-Export-ModuleMember -Function Get-ResearchServerByName, New-ResearchServer, Remove-ResearchServer, Get-ResearchServerDetails
+function Set-ResearchServerSecurityGroup {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$ServerId,
+        [Parameter(Mandatory = $true)][string]$ResearchSecurityGroup,
+        [Parameter(Mandatory = $true)][string]$BootstrapSecurityGroup
+    )
+
+    $details = Get-ResearchServerDetails -ServerId $ServerId
+    $currentNames = @($details.security_groups | ForEach-Object {
+        if ($_ -is [string]) { $_ } else { $_.name }
+    })
+
+    if ($ResearchSecurityGroup -notin $currentNames) {
+        $null = Invoke-OpenStack -Arguments @(
+            "server", "add", "security", "group", $ServerId, $ResearchSecurityGroup
+        )
+    }
+
+    if ($BootstrapSecurityGroup -ne $ResearchSecurityGroup -and $BootstrapSecurityGroup -in $currentNames) {
+        $null = Invoke-OpenStack -Arguments @(
+            "server", "remove", "security", "group", $ServerId, $BootstrapSecurityGroup
+        )
+    }
+}
+
+Export-ModuleMember -Function Get-ResearchServerByName, New-ResearchServer, Remove-ResearchServer, Get-ResearchServerDetails, Set-ResearchServerSecurityGroup

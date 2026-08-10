@@ -85,7 +85,7 @@ rocker/rstudio:4.6.0
      |
      v
 RStudio Server
-2026.05.1
+2026.07.1+147
      |
      | 127.0.0.1:8787
      v
@@ -228,6 +228,8 @@ deploy-rstudio
 tunnel
 ```
 
+Requiere que el volumen ya haya sido inicializado con `init-data` y que el secreto de RStudio exista. Por seguridad, `start` nunca formatea un volumen ni crea contraseñas automáticamente.
+
 Es decir:
 
 1. comprueba o crea la VM;
@@ -317,6 +319,22 @@ El comando:
 
 Es idempotente: si LUKS ya está abierto o `/data` ya está montado, no repite innecesariamente esas operaciones.
 
+## Inicializar un volumen nuevo
+
+```powershell
+.\scripts\research.ps1 init-data
+```
+
+Esta operación se ejecuta una sola vez y destruye cualquier contenido previo. Solo acepta un dispositivo inequívoco y vacío, exige confirmar `INITIALIZE <nombre-del-volumen>`, crea LUKS2 y ext4 y prepara los directorios persistentes.
+
+Después se crea el secreto de RStudio de forma interactiva:
+
+```powershell
+.\scripts\research.ps1 configure-rstudio
+```
+
+La contraseña no se muestra y el fichero queda con permisos `0600` dentro del volumen cifrado.
+
 ---
 
 ## Desplegar RStudio
@@ -392,12 +410,29 @@ El script obtiene automáticamente la floating IP de OpenStack.
 
 Antes de eliminar la VM:
 
-1. desmonta `/data`;
-2. cierra el mapper LUKS;
-3. desadjunta el volumen persistente;
-4. conserva `research-data-01`;
-5. desasocia la floating IP;
-6. elimina la instancia.
+1. detiene RStudio;
+2. comprueba que no quedan procesos utilizando `/data`;
+3. desmonta `/data`;
+4. cierra el mapper LUKS;
+5. desadjunta y conserva el volumen persistente;
+6. desasocia la floating IP;
+7. elimina la instancia.
+
+## Snapshots offline
+
+```powershell
+.\scripts\research.ps1 snapshot-data
+```
+
+Detiene los servicios, desmonta y cierra LUKS antes de crear un snapshot Cinder. Finalmente vuelve a adjuntar el volumen, que permanece cerrado hasta ejecutar `mount-data`. Los snapshots del mismo backend no sustituyen un backup independiente.
+
+Si el proveedor dispone de Cinder Backup puede crearse una copia offline:
+
+```powershell
+.\scripts\research.ps1 backup-data
+```
+
+La política debe incluir restauraciones de prueba sobre volúmenes nuevos y confirmar que el backend de backup es independiente del almacenamiento primario.
 
 Por diseño:
 
@@ -466,7 +501,6 @@ data_volume_type: __DEFAULT__
 data_volume_availability_zone: nova
 data_mapper_name: research-data
 data_mount_point: /data
-data_volume_delete_on_destroy: false
 ```
 
 Este fichero está excluido de Git.
@@ -515,8 +549,9 @@ openstack token issue
 ```text
 research-infrastructure/
 |
++-- .gitignore
 +-- cloud/
-|   `-- cloud-init
+|   `-- cloud-init.base.yaml
 |
 +-- config/
 |   +-- infrastructure.example.yaml
@@ -536,7 +571,8 @@ research-infrastructure/
 |
 +-- services/
 |   `-- rstudio/
-|       `-- compose.yaml
+|       +-- compose.yaml
+|       `-- Dockerfile
 |
 +-- .vscode/
 |   `-- tasks.json
@@ -552,9 +588,9 @@ research-infrastructure/
 Actualmente se utiliza:
 
 ```text
-Docker image: rocker/rstudio:4.6.0
+Base image: rocker/rstudio:4.6.0
 R: 4.6.0
-RStudio Server: 2026.05.1
+RStudio Server: 2026.07.1+147
 ```
 
 El contenedor publica:
@@ -581,6 +617,35 @@ VM localhost:8787
 RStudio
 ```
 
+## Paquetes R: binarios, `renv` y caché persistente
+
+La imagen base contiene únicamente herramientas transversales: `renv`, Git, certificados, una cadena de compilación razonable y cabeceras habituales de red, XML, ICU, fuentes y compresión. No contiene paquetes científicos como `dplyr`, `ggplot2`, `gt` o `survival`.
+
+Cada repositorio científico conserva su propio `renv.lock` y su biblioteca local de proyecto. El flujo normal, sin Posit Assistant, es:
+
+```r
+renv::status()
+renv::restore()
+```
+
+R usa el repositorio binario público de Posit para Ubuntu 24.04 Noble, x86_64 y R 4.6:
+
+```text
+https://packagemanager.posit.co/cran/latest/bin/linux/noble-x86_64/4.6
+```
+
+La URL declara explícitamente el entorno y no depende de que Rocker construya un `User-Agent` especial. `renv.lock` fija las versiones; `latest` solo indica el catálogo desde el que se resuelven y descargan esas versiones. Cuando Posit dispone del binario, la instalación muestra `installing *binary* package`. Para paquetes sin binario se conserva la cadena de compilación de la imagen.
+
+El caché compartido vive en `/data/.cache/renv` y llega al contenedor mediante `RENV_PATHS_CACHE`. El despliegue crea el directorio si falta, conserva el existente y le asigna al usuario `rstudio` permisos de escritura. Como está en el volumen cifrado `/data`, sobrevive a recreaciones del contenedor y de la VM y puede reutilizar paquetes entre proyectos. No sustituye ni el `renv.lock` ni la biblioteca aislada de cada proyecto.
+
+La comprobación ligera no instala ninguna colección científica grande:
+
+```powershell
+.\scripts\research.ps1 check-r
+```
+
+Valida R, libcurl, CRAN, el índice binario de Posit, el caché y `renv`, e instala `digest` en una biblioteca temporal para exigir que Posit lo sirva como binario. Si un paquete común empieza a compilarse, ejecute primero `check-r`, confirme `getOption("repos")` y no fuerce `type = "source"` ni `type = "binary"`; Package Manager selecciona el artefacto adecuado. Un paquete poco común puede carecer legítimamente de binario.
+
 ---
 
 # Seguridad
@@ -601,9 +666,7 @@ Controles actualmente implementados:
 
 ## Security group
 
-Actualmente existe un security group específico de investigación, pero la fase de bootstrap mantiene la conectividad SSH mediante la configuración de seguridad definida para el despliegue inicial.
-
-Queda pendiente endurecer definitivamente las reglas cuando se disponga del CIDR oficial de acceso VPN/universidad.
+`research_ssh_cidr` define el único origen IPv4 autorizado para SSH. El flujo crea una regla TCP/22 para ese CIDR, adjunta el security group de investigación y retira de la VM el grupo de bootstrap cuando ambos son distintos.
 
 ---
 
@@ -667,9 +730,8 @@ Los siguientes desarrollos se centran ya en el entorno científico:
 3. establecer política `raw / derived / outputs`;
 4. integrar repositorios científicos independientes;
 5. configurar flujo R + Git + Posit Assistant;
-6. definir estrategia de backups/snapshots del volumen;
-7. endurecer definitivamente el security group;
-8. mejorar la gestión local de autenticación OpenStack;
-9. incorporar comprobaciones adicionales y tests de infraestructura.
+6. configurar backups independientes del backend de Cinder y probar su restauración;
+7. mejorar la gestión local de autenticación OpenStack;
+8. incorporar comprobaciones adicionales y tests de infraestructura.
 
 El objetivo es que la infraestructura pase a ser una capa estable y que el trabajo cotidiano se concentre en los repositorios científicos y en RStudio.

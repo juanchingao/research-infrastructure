@@ -5,8 +5,13 @@ param(
     "start",
     "create",
     "status",
+    "init-data",
     "mount-data",
+    "configure-rstudio",
     "deploy-rstudio",
+    "check-r",
+    "snapshot-data",
+    "backup-data",
     "tunnel",
     "ssh",
     "destroy"
@@ -187,6 +192,21 @@ function Find-RemoteLuksDevice {
     throw "Se han encontrado varios dispositivos LUKS. No se puede seleccionar uno de forma segura."
 }
 
+function Stop-RemoteResearchServices {
+    param([string]$User, [string]$Host)
+
+    Invoke-ResearchSshCommand -User $User -Host $Host -Command `
+        "if [ -f /home/$User/research-services/rstudio/compose.yaml ]; then if [ -f /data/.secrets/rstudio.env ]; then docker compose --env-file /data/.secrets/rstudio.env -f /home/$User/research-services/rstudio/compose.yaml down; else docker rm -f research-rstudio 2>/dev/null || true; fi; fi"
+}
+
+function Close-RemoteDataVolume {
+    param([string]$User, [string]$Host, [string]$MountPoint, [string]$MapperName)
+
+    Stop-RemoteResearchServices -User $User -Host $Host
+    Invoke-ResearchSshCommand -User $User -Host $Host -Command `
+        "sync; if mountpoint -q $MountPoint; then if sudo fuser -m $MountPoint; then echo 'Hay procesos usando $MountPoint.' >&2; exit 42; fi; sudo umount $MountPoint; fi; if [ -e /dev/mapper/$MapperName ]; then sudo cryptsetup close $MapperName; fi"
+}
+
 
 $config = Get-ResearchConfig `
     -RepoRoot $repoRoot `
@@ -290,9 +310,13 @@ switch ($Action) {
             "research-workstation"
         }
 
-        $null = Ensure-ResearchSecurityGroup -Name $researchSg
+        $securityGroup = Ensure-ResearchSecurityGroup -Name $researchSg
+        $securityGroupId = Get-ObjectPropertyValue -Object $securityGroup -PropertyNames @("ID", "id")
+        $null = Ensure-ResearchSshRule `
+            -SecurityGroupId $securityGroupId `
+            -RemoteCidr $config["research_ssh_cidr"]
 
-        Write-Host "Security group listo: $researchSg"
+        Write-Host "Security group listo: $researchSg (SSH desde $($config["research_ssh_cidr"]))"
 
 
         Write-Section "Comprobando instancia"
@@ -321,6 +345,12 @@ switch ($Action) {
 
             Write-Host "La instancia ya existe: $($server.Name) ($serverId)"
         }
+
+
+        Set-ResearchServerSecurityGroup `
+            -ServerId $serverId `
+            -ResearchSecurityGroup $researchSg `
+            -BootstrapSecurityGroup $config["bootstrap_security_group"]
 
 
         Write-Section "Preparando volumen persistente"
@@ -363,6 +393,41 @@ switch ($Action) {
         break
     }
 
+
+    "init-data" {
+        Write-Section "Inicialización destructiva del volumen de datos"
+
+        $server = Get-CurrentServer -Config $config
+        if ($null -eq $server) { throw "No existe la instancia. Ejecuta create primero." }
+        $serverId = Get-ObjectPropertyValue -Object $server -PropertyNames @("ID", "id")
+        $floatingIp = Get-PreferredFloatingIp -ServerId $serverId
+        if ([string]::IsNullOrWhiteSpace($floatingIp)) { throw "La VM no tiene floating IP." }
+
+        $volume = Get-ResearchVolumeByName -Name $config["data_volume_name"]
+        if ($null -eq $volume) { throw "No existe el volumen configurado." }
+        $volumeId = Get-ObjectPropertyValue -Object $volume -PropertyNames @("ID", "id")
+        $null = Ensure-ResearchVolumeAttached -VolumeId $volumeId -ServerId $serverId
+        $device = Get-VolumeAttachmentDevice -VolumeId $volumeId -ServerId $serverId
+        if ([string]::IsNullOrWhiteSpace($device)) {
+            throw "OpenStack no informó del dispositivo; se cancela para no formatear un disco ambiguo."
+        }
+
+        $deviceState = @(Invoke-ResearchSshCommand -User $sshUser -Host $floatingIp -Command "if sudo cryptsetup isLuks $device 2>/dev/null; then echo LUKS; elif sudo wipefs -n $device | grep -q .; then echo IN_USE; else echo BLANK; fi")
+        $state = ([string]($deviceState | Select-Object -Last 1)).Trim()
+        if ($state -eq "LUKS") { throw "El volumen ya contiene LUKS. Usa mount-data; no se ha modificado nada." }
+        if ($state -ne "BLANK") { throw "El dispositivo contiene datos o un filesystem. Se cancela por seguridad." }
+
+        $expected = "INITIALIZE $($config["data_volume_name"])"
+        $answer = Read-Host "ESTA OPERACION BORRA EL VOLUMEN. Escribe exactamente: $expected"
+        if ($answer -ne $expected) { throw "Inicialización cancelada." }
+
+        Invoke-ResearchSshCommand -User $sshUser -Host $floatingIp -AllocateTty -Command "sudo cryptsetup luksFormat --type luks2 $device"
+        Invoke-ResearchSshCommand -User $sshUser -Host $floatingIp -AllocateTty -Command "sudo cryptsetup open $device $mapperName"
+        Invoke-ResearchSshCommand -User $sshUser -Host $floatingIp -Command "sudo mkfs.ext4 -L research-data /dev/mapper/$mapperName && sudo mkdir -p $mountPoint && sudo mount /dev/mapper/$mapperName $mountPoint && sudo install -d -m 700 -o $sshUser -g $sshUser $mountPoint/.secrets && sudo install -d -m 700 -o 1000 -g 1000 $mountPoint/rstudio-home && sudo install -d -m 2775 -o 1000 -g 1000 $mountPoint/.cache/renv && sudo chown ${sshUser}:${sshUser} $mountPoint"
+
+        Write-Host "Volumen LUKS2 inicializado y montado. Ejecuta configure-rstudio para crear el secreto."
+        break
+    }
 
     "mount-data" {
 
@@ -517,6 +582,25 @@ switch ($Action) {
         break
     }
 
+"configure-rstudio" {
+    Write-Section "Configurando secreto de RStudio"
+    $server = Get-CurrentServer -Config $config
+    if ($null -eq $server) { throw "No existe la instancia." }
+    $serverId = Get-ObjectPropertyValue -Object $server -PropertyNames @("ID", "id")
+    $floatingIp = Get-PreferredFloatingIp -ServerId $serverId
+    if ([string]::IsNullOrWhiteSpace($floatingIp)) { throw "La VM no tiene floating IP." }
+
+    $mountState = @(Invoke-ResearchSshCommand -User $sshUser -Host $floatingIp -Command "if mountpoint -q $mountPoint; then echo READY; else echo NOT_READY; fi")
+    if (([string]($mountState | Select-Object -Last 1)).Trim() -ne "READY") {
+        throw "El volumen no está montado. Ejecuta mount-data primero."
+    }
+
+    $secretCommand = "umask 077; mkdir -p $mountPoint/.secrets; printf 'Contraseña de RStudio: '; stty -echo; IFS= read -r RSTUDIO_PASSWORD; stty echo; printf '\n'; if [ -z `"`$RSTUDIO_PASSWORD`" ]; then echo 'La contraseña no puede estar vacía.' >&2; exit 2; fi; printf 'RSTUDIO_PASSWORD=%s\n' `"`$RSTUDIO_PASSWORD`" > $mountPoint/.secrets/rstudio.env; chmod 600 $mountPoint/.secrets/rstudio.env"
+    Invoke-ResearchSshCommand -User $sshUser -Host $floatingIp -Command $secretCommand -AllocateTty
+    Write-Host "Secreto creado con permisos 0600 dentro del volumen cifrado."
+    break
+}
+
 "deploy-rstudio" {
 
     Write-Section "Desplegando RStudio"
@@ -602,6 +686,14 @@ switch ($Action) {
     }
 
     Write-Host "Home persistente de RStudio disponible."
+
+    # The cache lives on the encrypted data volume and is never removed here.
+    Invoke-ResearchSshCommand `
+        -User $sshUser `
+        -Host $floatingIp `
+        -Command "sudo install -d -m 2775 -o 1000 -g 1000 /data/.cache/renv"
+
+    Write-Host "Caché renv persistente disponible."
 
 
     #
@@ -725,12 +817,99 @@ switch ($Action) {
     Write-Section "RStudio listo"
 
     Write-Host "Contenedor: research-rstudio"
-    Write-Host "Imagen: research-rstudio:4.6.0"
+    Write-Host "Imagen: research-rstudio:r4.6.0-rstudio2026.07.1-147"
     Write-Host "Puerto remoto: 127.0.0.1:8787"
     Write-Host ""
     Write-Host "Para acceder:"
     Write-Host "   .\scripts\research.ps1 tunnel"
 
+    break
+}
+
+"snapshot-data" {
+    Write-Section "Creando snapshot offline de los datos"
+    $server = Get-CurrentServer -Config $config
+    if ($null -eq $server) { throw "No existe la instancia." }
+    $serverId = Get-ObjectPropertyValue -Object $server -PropertyNames @("ID", "id")
+    $floatingIp = Get-PreferredFloatingIp -ServerId $serverId
+    if ([string]::IsNullOrWhiteSpace($floatingIp)) { throw "La VM no tiene floating IP." }
+    $volume = Get-ResearchVolumeByName -Name $config["data_volume_name"]
+    if ($null -eq $volume) { throw "No existe el volumen configurado." }
+    $volumeId = Get-ObjectPropertyValue -Object $volume -PropertyNames @("ID", "id")
+
+    Close-RemoteDataVolume -User $sshUser -Host $floatingIp -MountPoint $mountPoint -MapperName $mapperName
+    Remove-ResearchVolumeFromServer -VolumeId $volumeId -ServerId $serverId
+    try {
+        $snapshotName = "$($config["data_volume_name"])-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        $snapshot = New-ResearchVolumeSnapshot -VolumeId $volumeId -Name $snapshotName
+        $snapshotId = Get-ObjectPropertyValue -Object $snapshot -PropertyNames @("ID", "id")
+        Write-Host "Snapshot disponible: $snapshotName ($snapshotId)"
+    }
+    finally {
+        $null = Ensure-ResearchVolumeAttached -VolumeId $volumeId -ServerId $serverId
+    }
+
+    Write-Host "El volumen se ha vuelto a adjuntar y permanece cerrado. Ejecuta mount-data y deploy-rstudio."
+    break
+}
+
+"check-r" {
+    Write-Section "Comprobación ligera de R y repositorios"
+    $server = Get-CurrentServer -Config $config
+    if ($null -eq $server) { throw "No existe la instancia." }
+    $serverId = Get-ObjectPropertyValue -Object $server -PropertyNames @("ID", "id")
+    $floatingIp = Get-PreferredFloatingIp -ServerId $serverId
+    if ([string]::IsNullOrWhiteSpace($floatingIp)) { throw "La VM no tiene floating IP." }
+
+    $rCheck = @'
+options(timeout = 30)
+repos <- getOption("repos")
+print(repos)
+stopifnot(capabilities("libcurl"))
+stopifnot(identical(Sys.getenv("RENV_PATHS_CACHE"), "/data/.cache/renv"))
+stopifnot(requireNamespace("renv", quietly = TRUE))
+tf <- tempfile(fileext = ".gz")
+download.file("https://cloud.r-project.org/src/contrib/PACKAGES.gz", tf, method = "libcurl", quiet = TRUE)
+stopifnot(file.info(tf)$size > 100000)
+ap <- available.packages(repos = repos[["CRAN"]], method = "libcurl")
+stopifnot(nrow(ap) > 1000, "digest" %in% rownames(ap))
+cache_probe <- file.path(Sys.getenv("RENV_PATHS_CACHE"), paste0(".write-test-", Sys.getpid()))
+stopifnot(file.create(cache_probe)); unlink(cache_probe)
+lib <- tempfile("r-binary-check-"); dir.create(lib)
+out <- capture.output(install.packages("digest", lib = lib, repos = repos[["CRAN"]], quiet = FALSE), type = "output")
+cat(out, sep = "\n")
+stopifnot(any(grepl("installing \\*binary\\* package", out)))
+cat("\nOK: R, CRAN, Posit binaries, renv and persistent cache are operational.\n")
+'@
+    $encodedCheck = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($rCheck))
+    Invoke-ResearchSshCommand -User $sshUser -Host $floatingIp -Command "echo $encodedCheck | base64 -d | docker exec -i --user rstudio research-rstudio Rscript --vanilla -"
+    break
+}
+
+"backup-data" {
+    Write-Section "Creando backup offline de los datos"
+    $server = Get-CurrentServer -Config $config
+    if ($null -eq $server) { throw "No existe la instancia." }
+    $serverId = Get-ObjectPropertyValue -Object $server -PropertyNames @("ID", "id")
+    $floatingIp = Get-PreferredFloatingIp -ServerId $serverId
+    if ([string]::IsNullOrWhiteSpace($floatingIp)) { throw "La VM no tiene floating IP." }
+    $volume = Get-ResearchVolumeByName -Name $config["data_volume_name"]
+    if ($null -eq $volume) { throw "No existe el volumen configurado." }
+    $volumeId = Get-ObjectPropertyValue -Object $volume -PropertyNames @("ID", "id")
+
+    Close-RemoteDataVolume -User $sshUser -Host $floatingIp -MountPoint $mountPoint -MapperName $mapperName
+    Remove-ResearchVolumeFromServer -VolumeId $volumeId -ServerId $serverId
+    try {
+        $backupName = "$($config["data_volume_name"])-backup-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        $backup = New-ResearchVolumeBackup -VolumeId $volumeId -Name $backupName
+        $backupId = Get-ObjectPropertyValue -Object $backup -PropertyNames @("ID", "id")
+        Write-Host "Backup disponible: $backupName ($backupId)"
+    }
+    finally {
+        $null = Ensure-ResearchVolumeAttached -VolumeId $volumeId -ServerId $serverId
+    }
+
+    Write-Host "El volumen se ha vuelto a adjuntar y permanece cerrado. Ejecuta mount-data y deploy-rstudio."
     break
 }
 
@@ -935,10 +1114,11 @@ switch ($Action) {
 
                 Write-Section "Cerrando volumen de datos"
 
-                Invoke-ResearchSshCommand `
+                Close-RemoteDataVolume `
                     -User $sshUser `
                     -Host $floatingIp `
-                    -Command "if mountpoint -q $mountPoint; then sudo umount $mountPoint; fi; if [ -e /dev/mapper/$mapperName ]; then sudo cryptsetup close $mapperName; fi"
+                    -MountPoint $mountPoint `
+                    -MapperName $mapperName
 
                 Write-Host "Sistema de archivos desmontado y LUKS cerrado."
 
