@@ -347,6 +347,11 @@ switch ($Action) {
         }
 
 
+        Write-Section "Comprobando estado de la instancia"
+
+        $null = Ensure-ResearchServerRunning -ServerId $serverId
+
+
         Set-ResearchServerSecurityGroup `
             -ServerId $serverId `
             -ResearchSecurityGroup $researchSg `

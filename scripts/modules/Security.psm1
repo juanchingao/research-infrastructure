@@ -1,5 +1,21 @@
 Set-StrictMode -Version Latest
 
+function Get-SecurityRuleProperty {
+    param(
+        [Parameter(Mandatory = $true)]$Rule,
+        [Parameter(Mandatory = $true)][string[]]$Names
+    )
+
+    foreach ($name in $Names) {
+        $property = $Rule.PSObject.Properties[$name]
+        if ($null -ne $property) {
+            return $property.Value
+        }
+    }
+
+    return $null
+}
+
 function Ensure-ResearchSecurityGroup {
     [CmdletBinding()]
     param(
@@ -41,9 +57,28 @@ function Ensure-ResearchSshRule {
     ) -ExpectJson
 
     $matching = @($rules | Where-Object {
-        [string]$_.'IP Protocol' -eq 'tcp' -and
-        [string]$_.'Port Range' -in @('22:22', '22') -and
-        [string]$_.'Remote IP Prefix' -eq $RemoteCidr
+        $protocol = Get-SecurityRuleProperty -Rule $_ -Names @(
+            'IP Protocol', 'Protocol', 'protocol'
+        )
+        $portRange = Get-SecurityRuleProperty -Rule $_ -Names @(
+            'Port Range', 'port_range'
+        )
+        $portMin = Get-SecurityRuleProperty -Rule $_ -Names @(
+            'Port Range Min', 'port_range_min'
+        )
+        $portMax = Get-SecurityRuleProperty -Rule $_ -Names @(
+            'Port Range Max', 'port_range_max'
+        )
+        $remoteCidr = Get-SecurityRuleProperty -Rule $_ -Names @(
+            'Remote IP Prefix', 'IP Range', 'remote_ip_prefix'
+        )
+
+        $isSshPort = [string]$portRange -in @('22:22', '22') -or
+            ([string]$portMin -eq '22' -and [string]$portMax -eq '22')
+
+        [string]$protocol -eq 'tcp' -and
+        $isSshPort -and
+        [string]$remoteCidr -eq $RemoteCidr
     })
 
     if ($matching.Count -gt 0) {

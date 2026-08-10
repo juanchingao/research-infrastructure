@@ -68,6 +68,85 @@ function Get-ResearchServerDetails {
     return Invoke-OpenStack -Arguments @("server", "show", $ServerId, "-f", "json") -ExpectJson
 }
 
+function Wait-ResearchServerActive {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$ServerId,
+        [Parameter(Mandatory = $false)][int]$TimeoutSeconds = 300
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+
+    do {
+        $details = Get-ResearchServerDetails -ServerId $ServerId
+        $statusProperty = $details.PSObject.Properties['status']
+        if ($null -eq $statusProperty) {
+            throw "OpenStack no devolvió el estado de la instancia '$ServerId'."
+        }
+
+        $status = ([string]$statusProperty.Value).ToUpperInvariant()
+        if ($status -eq 'ACTIVE') {
+            return $details
+        }
+        if ($status -eq 'ERROR') {
+            throw "La instancia '$ServerId' ha entrado en estado ERROR."
+        }
+
+        Start-Sleep -Seconds 5
+    } while ((Get-Date) -lt $deadline)
+
+    throw "La instancia '$ServerId' no alcanzó el estado ACTIVE en $TimeoutSeconds segundos."
+}
+
+function Ensure-ResearchServerRunning {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$ServerId
+    )
+
+    $details = Get-ResearchServerDetails -ServerId $ServerId
+    $statusProperty = $details.PSObject.Properties['status']
+    if ($null -eq $statusProperty) {
+        throw "OpenStack no devolvió el estado de la instancia '$ServerId'."
+    }
+
+    $status = ([string]$statusProperty.Value).ToUpperInvariant()
+    switch ($status) {
+        'ACTIVE' {
+            Write-Host "La instancia ya está activa."
+            return $details
+        }
+        'SHUTOFF' {
+            Write-Host "La instancia está apagada; arrancándola."
+            $null = Invoke-OpenStack -Arguments @('server', 'start', $ServerId)
+        }
+        'SHELVED' {
+            Write-Host "La instancia está shelved; recuperándola."
+            $null = Invoke-OpenStack -Arguments @('server', 'unshelve', $ServerId)
+        }
+        'SHELVED_OFFLOADED' {
+            Write-Host "La instancia está shelved y descargada; recuperándola."
+            $null = Invoke-OpenStack -Arguments @('server', 'unshelve', $ServerId)
+        }
+        'PAUSED' {
+            Write-Host "La instancia está pausada; reanudándola."
+            $null = Invoke-OpenStack -Arguments @('server', 'unpause', $ServerId)
+        }
+        'SUSPENDED' {
+            Write-Host "La instancia está suspendida; reanudándola."
+            $null = Invoke-OpenStack -Arguments @('server', 'resume', $ServerId)
+        }
+        'ERROR' {
+            throw "La instancia '$ServerId' está en estado ERROR."
+        }
+        default {
+            Write-Host "La instancia está en estado transitorio '$status'; esperando a ACTIVE."
+        }
+    }
+
+    return Wait-ResearchServerActive -ServerId $ServerId
+}
+
 function Set-ResearchServerSecurityGroup {
     [CmdletBinding()]
     param(
@@ -94,4 +173,4 @@ function Set-ResearchServerSecurityGroup {
     }
 }
 
-Export-ModuleMember -Function Get-ResearchServerByName, New-ResearchServer, Remove-ResearchServer, Get-ResearchServerDetails, Set-ResearchServerSecurityGroup
+Export-ModuleMember -Function Get-ResearchServerByName, New-ResearchServer, Remove-ResearchServer, Get-ResearchServerDetails, Ensure-ResearchServerRunning, Set-ResearchServerSecurityGroup

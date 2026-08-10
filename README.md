@@ -213,7 +213,10 @@ Una vez configurada la estación de trabajo, el comando principal es:
 .\scripts\research.ps1 start
 ```
 
-`start` orquesta automáticamente:
+`start` orquesta automáticamente. Si la instancia ya existe, mantiene una
+instancia `ACTIVE`, arranca una `SHUTOFF` y recupera una instancia
+`SHELVED`, `PAUSED` o `SUSPENDED`. Espera hasta que OpenStack informa
+`ACTIVE` antes de preparar el volumen e intentar SSH:
 
 ```text
 create
