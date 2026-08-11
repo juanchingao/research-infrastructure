@@ -1,0 +1,23 @@
+# Instancia Ollama separada; sin secretos.
+instance_name: research-ollama-01
+image: Ubuntu2404
+flavor: 16cpu+30ram+8vol
+network: URJCmedRWD
+availability_zone: nova
+external_network: public
+security_group: research-ollama
+ssh_user: ubuntu
+keypair: CHANGE_ME_OPENSTACK_KEYPAIR
+ssh_cidr: CHANGE_ME_SSH_CIDR
+rstudio_private_cidr: 192.168.103.178/32
+cloud_init_file: cloud/cloud-init.base.yaml
+
+# Docker, la imagen de Ollama y los modelos viven en este volumen.
+data_volume_name: research-ollama-01-data
+data_volume_size_gb: 100
+data_volume_type: __DEFAULT__
+data_volume_availability_zone: nova
+data_mount_point: /srv/ollama
+
+ollama_image: ollama/ollama:0.32.5
+ollama_model: qwen3.5:9b

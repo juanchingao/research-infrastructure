@@ -7,6 +7,9 @@ ARG RENV_VERSION=1.1.5
 # Encode distro, architecture and R minor version in the URL so binary
 # selection does not depend on the R User-Agent configured by the base image.
 ENV RSPM=https://packagemanager.posit.co/cran/latest/bin/linux/noble-x86_64/4.6
+# The repository URL already selects the exact Linux binary platform. Prevent
+# renv from appending a second __linux__/noble/<R-version> segment.
+ENV RENV_CONFIG_PPM_ENABLED=false
 
 RUN printf '%s\n' \
         'local({' \

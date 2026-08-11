@@ -22,5 +22,18 @@ services:
 
     working_dir: /data
 
+    networks:
+      - rstudio
+
     security_opt:
       - no-new-privileges:true
+
+networks:
+  rstudio:
+    # OpenStack tenant networks add encapsulation overhead. Keeping the
+    # container MTU below the underlay MTU prevents TLS handshakes from
+    # stalling when larger server responses cannot traverse the Docker bridge.
+    name: research-rstudio-mtu1400
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: "1400"

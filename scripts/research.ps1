@@ -35,6 +35,7 @@ $ErrorActionPreference = "Stop"
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptRoot
 $moduleRoot = Join-Path -Path $scriptRoot -ChildPath "modules"
+$ollamaScript = Join-Path -Path $scriptRoot -ChildPath "ollama.ps1"
 
 Import-Module (Join-Path $moduleRoot "Config.psm1") -Force -DisableNameChecking
 Import-Module (Join-Path $moduleRoot "OpenStackCli.psm1") -Force -DisableNameChecking
@@ -239,7 +240,7 @@ switch ($Action) {
     Write-Section "Iniciando estacion de investigacion"
 
     Write-Host ""
-    Write-Host "Paso 1/4 - Infraestructura OpenStack"
+    Write-Host "Paso 1/5 - Infraestructura OpenStack"
     Write-Host ""
 
     & $PSCommandPath `
@@ -252,7 +253,7 @@ switch ($Action) {
 
 
     Write-Host ""
-    Write-Host "Paso 2/4 - Volumen de datos cifrado"
+    Write-Host "Paso 2/5 - Volumen de datos cifrado"
     Write-Host ""
 
     & $PSCommandPath `
@@ -265,7 +266,7 @@ switch ($Action) {
 
 
     Write-Host ""
-    Write-Host "Paso 3/4 - RStudio Server"
+    Write-Host "Paso 3/5 - RStudio Server"
     Write-Host ""
 
     & $PSCommandPath `
@@ -276,6 +277,16 @@ switch ($Action) {
         throw "Fallo el despliegue de RStudio."
     }
 
+    Write-Host ""
+    Write-Host "Paso 4/5 - Ollama"
+    Write-Host ""
+
+    & $ollamaScript -Action "start"
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "Fallo el arranque de Ollama."
+    }
+
 
     Write-Section "Estacion preparada"
 
@@ -284,7 +295,8 @@ switch ($Action) {
     Write-Host "Datos: desbloqueados y montados"
     Write-Host "RStudio: desplegado"
     Write-Host ""
-    Write-Host "Paso 4/4 - Abriendo tunel"
+    Write-Host "Ollama: desplegado"
+    Write-Host "Paso 5/5 - Abriendo tunel"
     Write-Host "RStudio estara disponible en:"
     Write-Host ""
     Write-Host "    http://localhost:8787"
@@ -611,7 +623,9 @@ switch ($Action) {
 
         $server = Get-CurrentServer -Config $config
         if ($null -eq $server) {
-            Write-Host "La instancia no existe; no hay nada que detener."
+            Write-Host "La instancia RStudio no existe; comprobando Ollama."
+            & $ollamaScript -Action "stop"
+            if ($LASTEXITCODE -ne 0) { throw "Fallo el apagado de Ollama." }
             break
         }
 
@@ -646,6 +660,14 @@ switch ($Action) {
         Write-Host "VM: apagada"
         Write-Host "Volumen Cinder: conservado"
         Write-Host "Floating IP: conservada"
+
+        Write-Section "Apagando Ollama"
+        & $ollamaScript -Action "stop"
+        if ($LASTEXITCODE -ne 0) {
+            throw "RStudio se apago, pero fallo el apagado de Ollama."
+        }
+        Write-Host "VM Ollama: apagada"
+        Write-Host "Volumen de modelos: conservado"
         break
     }
 
@@ -841,7 +863,6 @@ switch ($Action) {
 
     Write-Host "Contenedor research-rstudio en ejecucion."
 
-
     #
     # 12. Verificar que RStudio responde en localhost:8787
     #
@@ -906,8 +927,10 @@ switch ($Action) {
 options(timeout = 30)
 repos <- getOption("repos")
 print(repos)
+stopifnot(!identical(unname(repos[["CRAN"]]), "@CRAN@"))
 stopifnot(capabilities("libcurl"))
 stopifnot(identical(Sys.getenv("RENV_PATHS_CACHE"), "/data/.cache/renv"))
+stopifnot(identical(tolower(Sys.getenv("RENV_CONFIG_PPM_ENABLED")), "false"))
 stopifnot(requireNamespace("renv", quietly = TRUE))
 tf <- tempfile(fileext = ".gz")
 download.file("https://cloud.r-project.org/src/contrib/PACKAGES.gz", tf, method = "libcurl", quiet = TRUE)
@@ -917,13 +940,18 @@ stopifnot(nrow(ap) > 1000, "digest" %in% rownames(ap))
 cache_probe <- file.path(Sys.getenv("RENV_PATHS_CACHE"), paste0(".write-test-", Sys.getpid()))
 stopifnot(file.create(cache_probe)); unlink(cache_probe)
 lib <- tempfile("r-binary-check-"); dir.create(lib)
-out <- capture.output(install.packages("digest", lib = lib, repos = repos[["CRAN"]], quiet = FALSE), type = "output")
-cat(out, sep = "\n")
-stopifnot(any(grepl("installing \\*binary\\* package", out)))
+downloads <- download.packages("digest", destdir = tempdir(), repos = repos[["CRAN"]], quiet = TRUE)
+stopifnot(nrow(downloads) == 1L, file.exists(downloads[1L, 2L]))
+archive_members <- utils::untar(downloads[1L, 2L], list = TRUE)
+stopifnot(any(grepl("/Meta/package[.]rds$", archive_members)))
+install.packages("digest", lib = lib, repos = repos[["CRAN"]], quiet = FALSE)
+stopifnot(requireNamespace("digest", lib.loc = lib, quietly = TRUE))
 cat("\nOK: R, CRAN, Posit binaries, renv and persistent cache are operational.\n")
 '@
     $encodedCheck = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($rCheck))
-    Invoke-ResearchSshCommand -User $sshUser -Host $floatingIp -Command "echo $encodedCheck | base64 -d | docker exec -i --user rstudio research-rstudio Rscript --vanilla -"
+    # Do not use --vanilla here: it disables Rprofile.site, which is where the
+    # image configures the Posit Package Manager repository.
+    Invoke-ResearchSshCommand -User $sshUser -Host $floatingIp -Command "echo $encodedCheck | base64 -d | docker exec -i --user rstudio research-rstudio Rscript -"
     break
 }
 

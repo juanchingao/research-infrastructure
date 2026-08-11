@@ -670,6 +670,10 @@ https://packagemanager.posit.co/cran/latest/bin/linux/noble-x86_64/4.6
 
 La URL declara explícitamente el entorno y no depende de que Rocker construya un `User-Agent` especial. `renv.lock` fija las versiones; `latest` solo indica el catálogo desde el que se resuelven y descargan esas versiones. Cuando Posit dispone del binario, la instalación muestra `installing *binary* package`. Para paquetes sin binario se conserva la cadena de compilación de la imagen.
 
+La imagen define además `RENV_CONFIG_PPM_ENABLED=false`. La integración automática de Posit Package Manager en `renv` transforma las URL de fuentes en URL binarias; aquí debe permanecer desactivada porque `RSPM` ya es una URL binaria completa. De otro modo, `renv` puede añadir una segunda ruta `__linux__/noble/4.6` y consultar un índice inexistente.
+
+El contenedor usa una red bridge dedicada con MTU 1400. Las redes tenant de OpenStack encapsulan el tráfico y pueden ofrecer un MTU menor que los 1500 bytes predeterminados de Docker. Sin este ajuste, DNS y la conexión TCP pueden funcionar mientras la respuesta al saludo TLS queda bloqueada, impidiendo acceder a determinados repositorios HTTPS.
+
 El caché compartido vive en `/data/.cache/renv` y llega al contenedor mediante `RENV_PATHS_CACHE`. El despliegue crea el directorio si falta, conserva el existente y le asigna al usuario `rstudio` permisos de escritura. Como está en el volumen cifrado `/data`, sobrevive a recreaciones del contenedor y de la VM y puede reutilizar paquetes entre proyectos. No sustituye ni el `renv.lock` ni la biblioteca aislada de cada proyecto.
 
 La comprobación ligera no instala ninguna colección científica grande:
@@ -679,6 +683,26 @@ La comprobación ligera no instala ninguna colección científica grande:
 ```
 
 Valida R, libcurl, CRAN, el índice binario de Posit, el caché y `renv`, e instala `digest` en una biblioteca temporal para exigir que Posit lo sirva como binario. Si un paquete común empieza a compilarse, ejecute primero `check-r`, confirme `getOption("repos")` y no fuerce `type = "source"` ni `type = "binary"`; Package Manager selecciona el artefacto adecuado. Un paquete poco común puede carecer legítimamente de binario.
+
+## Ollama en instancia independiente
+
+Ollama se ejecuta en `research-ollama-01`, separada de RStudio para no competir por CPU, RAM ni disco. El piloto usa `16cpu+30ram+8vol` y conserva Docker, la imagen y los modelos en el volumen Cinder `research-ollama-01-data` de 100 GB. El puerto 11434 solo admite conexiones desde la IP privada configurada de RStudio.
+
+El ciclo completo es idempotente:
+
+```powershell
+.\scripts\ollama.ps1 start
+.\scripts\ollama.ps1 validate
+.\scripts\ollama.ps1 status
+.\scripts\ollama.ps1 check-rstudio
+.\scripts\ollama.ps1 stop
+```
+
+`start` crea o arranca la VM, asocia y monta el volumen en `/srv/ollama`, configura Docker en `/srv/ollama/docker` y containerd en `/srv/ollama/containerd`, despliega Ollama y garantiza que el modelo configurado esté descargado. `stop` detiene el contenedor y apaga la VM, conservando el volumen y la floating IP. `destroy` elimina la VM pero conserva el volumen para una reconstrucción posterior. Las acciones `research.ps1 start` y `research.ps1 stop` incluyen este ciclo automáticamente.
+
+Cuando OpenStack crea una VM nueva y reutiliza una floating IP, su clave SSH cambia legítimamente. El flujo elimina en ese caso solo la entrada anterior de esa IP en `known_hosts`; la primera conexión debe confirmar la nueva huella mostrada por SSH. Un mero apagado y encendido conserva la clave y no modifica `known_hosts`.
+
+La configuración versionada vive en `config/ollama.example.yaml`; los valores locales se guardan en `config/ollama.local.yaml`, excluido de Git. `ollama.ps1 status` muestra el endpoint privado que debe configurarse en `/home/rstudio/.posit/ai/providers.json`.
 
 ---
 

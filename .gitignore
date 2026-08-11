@@ -9,6 +9,7 @@ openrc
 *.openrc
 config/clouds.yaml
 config/infrastructure.local.yaml
+config/ollama.local.yaml
 config/*.local.ps1
 config/*auth*.ps1
 

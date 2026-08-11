@@ -1,0 +1,25 @@
+services:
+  ollama:
+    image: ollama/ollama:0.32.5
+    container_name: research-ollama
+
+    restart: unless-stopped
+
+    ports:
+      - "0.0.0.0:11434:11434"
+
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_KEEP_ALIVE: 5m
+      OLLAMA_MAX_LOADED_MODELS: 1
+      OLLAMA_NUM_PARALLEL: 1
+
+    volumes:
+      - ollama-models:/root/.ollama
+
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  ollama-models:
+    name: research-ollama-models
