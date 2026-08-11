@@ -166,8 +166,64 @@ function Invoke-ResearchSshTunnel {
 }
 
 
+function Wait-ResearchRemoteHttp {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$User,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Host,
+
+        [Parameter(Mandatory = $true)]
+        [int]$Port,
+
+        [Parameter(Mandatory = $false)]
+        [string]$RemoteHost = "127.0.0.1",
+
+        [Parameter(Mandatory = $false)]
+        [int]$TimeoutSeconds = 60,
+
+        [Parameter(Mandatory = $false)]
+        [int]$PollIntervalSeconds = 3
+    )
+
+    if ($TimeoutSeconds -le 0) {
+        throw "TimeoutSeconds debe ser mayor que cero."
+    }
+
+    if ($PollIntervalSeconds -le 0) {
+        throw "PollIntervalSeconds debe ser mayor que cero."
+    }
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+
+    do {
+        $httpState = @(
+            Invoke-ResearchSshCommand `
+                -User $User `
+                -Host $Host `
+                -Command "if curl -fsS --max-time 5 -o /dev/null http://${RemoteHost}:${Port}; then echo READY; else echo NOT_READY; fi"
+        )
+
+        $httpStatus = [string]($httpState | Select-Object -Last 1)
+
+        if ($httpStatus.Trim() -eq "READY") {
+            return $true
+        }
+
+        if ((Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds $PollIntervalSeconds
+        }
+    } while ((Get-Date) -lt $deadline)
+
+    throw "El servicio HTTP remoto no respondio en ${RemoteHost}:$Port tras $TimeoutSeconds segundos."
+}
+
+
 Export-ModuleMember -Function `
     Invoke-ResearchSsh, `
     Invoke-ResearchSshCommand, `
     Copy-ResearchFileToHost, `
-    Invoke-ResearchSshTunnel
+    Invoke-ResearchSshTunnel, `
+    Wait-ResearchRemoteHttp

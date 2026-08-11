@@ -845,18 +845,11 @@ switch ($Action) {
     #
     # 12. Verificar que RStudio responde en localhost:8787
     #
-    $httpState = @(
-        Invoke-ResearchSshCommand `
-            -User $sshUser `
-            -Host $floatingIp `
-            -Command "if curl -fsS -o /dev/null http://127.0.0.1:8787; then echo READY; else echo FAILED; fi"
-    )
-
-    $httpStatus = [string]($httpState | Select-Object -Last 1)
-
-    if ($httpStatus.Trim() -ne "READY") {
-        throw "RStudio esta arrancado pero no responde en 127.0.0.1:8787."
-    }
+    $null = Wait-ResearchRemoteHttp `
+        -User $sshUser `
+        -Host $floatingIp `
+        -Port 8787 `
+        -TimeoutSeconds 90
 
 
     #
@@ -989,17 +982,15 @@ cat("\nOK: R, CRAN, Posit binaries, renv and persistent cache are operational.\n
     #
     # Verificar primero que RStudio responde.
     #
-    $serviceState = @(
-        Invoke-ResearchSshCommand `
+    try {
+        $null = Wait-ResearchRemoteHttp `
             -User $sshUser `
             -Host $floatingIp `
-            -Command "if curl -fsS -o /dev/null http://127.0.0.1:8787; then echo READY; else echo NOT_READY; fi"
-    )
-
-    $serviceStatus = [string]($serviceState | Select-Object -Last 1)
-
-    if ($serviceStatus.Trim() -ne "READY") {
-        throw "RStudio no esta disponible. Ejecuta primero: .\scripts\research.ps1 deploy-rstudio"
+            -Port 8787 `
+            -TimeoutSeconds 30
+    }
+    catch {
+        throw "RStudio no esta disponible. Ejecuta primero: .\scripts\research.ps1 deploy-rstudio. Detalle: $($_.Exception.Message)"
     }
 
 
