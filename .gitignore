@@ -38,6 +38,9 @@ __pycache__/
 # VS Code local
 .vscode/*.local.json
 
+# Generated benchmark results
+artifacts/
+
 # Keep versioned examples
 !config/*.example.yaml
 config/openstack-auth.local.ps1

@@ -1,11 +1,14 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet("validate", "start", "stop", "create", "init-data", "deploy", "pull-model", "check-rstudio", "status", "ssh", "destroy")]
+    [ValidateSet("validate", "start", "stop", "create", "init-data", "resize-data", "deploy", "pull-model", "check-rstudio", "status", "ssh", "destroy")]
     [string]$Action,
 
     [Parameter(Mandatory = $false)]
-    [string]$ConfigPath
+    [string]$ConfigPath,
+
+    [Parameter(Mandatory = $false)]
+    [string]$Model
 )
 
 Set-StrictMode -Version Latest
@@ -320,6 +323,80 @@ sudo grep -E '^root[[:space:]]*=' /etc/containerd/config.toml
         break
     }
 
+    "resize-data" {
+        $context = Get-Context
+        $volume = Get-ResearchVolumeByName -Name $config["data_volume_name"]
+        if ($null -eq $volume) { throw "No existe el volumen Ollama." }
+        $volumeId = [string](Get-PropertyValue $volume @("ID", "id"))
+        $details = Get-ResearchVolumeDetails -VolumeId $volumeId
+        $currentSizeGb = [int](Get-PropertyValue $details @("size", "Size"))
+        $targetSizeGb = [int]$config["data_volume_size_gb"]
+        if ($targetSizeGb -lt $currentSizeGb) {
+            throw "No se puede reducir el volumen de $currentSizeGb GB a $targetSizeGb GB."
+        }
+
+        $null = Ensure-ResearchVolumeAttached -VolumeId $volumeId -ServerId $context.ServerId
+        $device = Get-AttachmentDevice -VolumeId $volumeId -ServerId $context.ServerId
+        if ([string]::IsNullOrWhiteSpace($device)) { throw "OpenStack no informo del dispositivo del volumen Ollama." }
+
+        if ($targetSizeGb -gt $currentSizeGb) {
+            Write-Section "Ampliando volumen Cinder de $currentSizeGb GB a $targetSizeGb GB"
+            $null = Invoke-OpenStack -Arguments @("volume", "set", "--size", "$targetSizeGb", $volumeId)
+            $details = Wait-ResearchVolumeStatus -VolumeId $volumeId -ExpectedStatus @("in-use", "available") -TimeoutSeconds 600
+            $reportedSizeGb = [int](Get-PropertyValue $details @("size", "Size"))
+            if ($reportedSizeGb -lt $targetSizeGb) {
+                throw "Cinder sigue informando $reportedSizeGb GB tras solicitar $targetSizeGb GB."
+            }
+        } else {
+            Write-Host "Volumen Cinder: ya tiene $targetSizeGb GB"
+        }
+
+        $mountPoint = $config["data_mount_point"]
+        $resizeTemplate = @'
+set -eu
+device='__DEVICE__'
+mountpoint='__MOUNTPOINT__'
+target_bytes=__TARGET_BYTES__
+
+test -b "$device" || { echo "No existe el dispositivo $device" >&2; exit 21; }
+mountpoint -q "$mountpoint" || { echo "$mountpoint no esta montado" >&2; exit 22; }
+[ "$(findmnt -nr -T "$mountpoint" -o SOURCE)" = "$device" ] || {
+  echo "$mountpoint no esta montado desde $device" >&2
+  exit 23
+}
+
+block=$(basename "$(readlink -f "$device")")
+if [ -e "/sys/class/block/$block/device/rescan" ]; then
+  echo 1 | sudo tee "/sys/class/block/$block/device/rescan" >/dev/null
+elif command -v nvme >/dev/null 2>&1 && [[ "$block" = nvme* ]]; then
+  sudo nvme ns-rescan "$device"
+else
+  for scan in /sys/class/scsi_host/host*/scan; do
+    [ -e "$scan" ] || continue
+    echo '- - -' | sudo tee "$scan" >/dev/null
+  done
+fi
+sudo udevadm settle
+actual_bytes=$(sudo blockdev --getsize64 "$device")
+if [ "$actual_bytes" -lt "$target_bytes" ]; then
+  echo "El kernel ve $actual_bytes bytes, menos de los $target_bytes esperados." >&2
+  echo "OpenStack no ha propagado la nueva capacidad al attachment; apaga y arranca la VM y repite resize-data." >&2
+  exit 24
+fi
+
+sudo resize2fs "$device"
+findmnt "$mountpoint"
+df -h "$mountpoint"
+'@
+        $targetBytes = [int64]$targetSizeGb * 1GB
+        $resizeScript = $resizeTemplate.Replace("__DEVICE__", $device).Replace("__MOUNTPOINT__", $mountPoint).Replace("__TARGET_BYTES__", [string]$targetBytes)
+        $encodedResize = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($resizeScript))
+        Write-Section "Ampliando filesystem ext4"
+        Invoke-ResearchSshCommand -User $sshUser -Host $context.FloatingIp -Command "echo $encodedResize | base64 -d | bash"
+        Write-Host "Volumen Ollama ampliado a $targetSizeGb GB."
+        break
+    }
+
     "deploy" {
         $context = Get-Context
         $localCompose = Join-Path $repoRoot "services\ollama\compose.yaml"
@@ -356,7 +433,11 @@ fi
 
     "pull-model" {
         $context = Get-Context
-        Invoke-ResearchSshCommand -User $sshUser -Host $context.FloatingIp -Command "docker exec research-ollama ollama pull $($config['ollama_model'])"
+        $modelToPull = if ([string]::IsNullOrWhiteSpace($Model)) { $config["ollama_model"] } else { $Model }
+        if ($modelToPull -notmatch "^[A-Za-z0-9][A-Za-z0-9._/-]*(?::[A-Za-z0-9][A-Za-z0-9._-]*)?$") {
+            throw "Nombre de modelo Ollama no valido: $modelToPull"
+        }
+        Invoke-ResearchSshCommand -User $sshUser -Host $context.FloatingIp -Command "docker exec research-ollama ollama pull $modelToPull"
         break
     }
 

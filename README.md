@@ -700,6 +700,29 @@ El ciclo completo es idempotente:
 
 `start` crea o arranca la VM, asocia y monta el volumen en `/srv/ollama`, configura Docker en `/srv/ollama/docker` y containerd en `/srv/ollama/containerd`, despliega Ollama y garantiza que el modelo configurado esté descargado. `stop` detiene el contenedor y apaga la VM, conservando el volumen y la floating IP. `destroy` elimina la VM pero conserva el volumen para una reconstrucción posterior. Las acciones `research.ps1 start` y `research.ps1 stop` incluyen este ciclo automáticamente.
 
+Para comparar de forma reproducible los modelos de codigo instalados, se puede ejecutar:
+
+```powershell
+. .\config\openstack-auth.local.ps1
+.\scripts\benchmark-ollama.ps1
+```
+
+El benchmark realiza un calentamiento y tres repeticiones de tres tareas de R con `temperature: 0`. Compara por defecto `qwen2.5-coder:3b` y `qwen2.5-coder:7b`, muestra el resumen y guarda las metricas y respuestas completas bajo `artifacts/`. No ejecuta el codigo generado; las respuestas quedan disponibles para revisar su calidad de forma segura.
+
+Se puede descargar un modelo adicional sin cambiar el modelo principal configurado:
+
+```powershell
+.\scripts\ollama.ps1 pull-model -Model gpt-oss:20b
+```
+
+Si se aumenta `data_volume_size_gb` en la configuracion local, la ampliacion de Cinder y del filesystem ext4 se aplica explicitamente con:
+
+```powershell
+.\scripts\ollama.ps1 resize-data
+```
+
+La accion es idempotente y nunca reduce el volumen.
+
 Cuando OpenStack crea una VM nueva y reutiliza una floating IP, su clave SSH cambia legítimamente. El flujo elimina en ese caso solo la entrada anterior de esa IP en `known_hosts`; la primera conexión debe confirmar la nueva huella mostrada por SSH. Un mero apagado y encendido conserva la clave y no modifica `known_hosts`.
 
 La configuración versionada vive en `config/ollama.example.yaml`; los valores locales se guardan en `config/ollama.local.yaml`, excluido de Git. `ollama.ps1 status` muestra el endpoint privado que debe configurarse en `/home/rstudio/.posit/ai/providers.json`.
