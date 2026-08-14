@@ -272,7 +272,14 @@ no intenta conectar por SSH ni repite el apagado.
 .\scripts\research.ps1 start
 ```
 
-Es el comando recomendado para el uso habitual.
+Es el comando recomendado para el uso habitual. Antes de arrancar la VM de Ollama pregunta si se desea hacerlo y selecciona `No` por defecto para evitar costes accidentales.
+
+Para automatización se puede decidir sin pregunta:
+
+```powershell
+.\scripts\research.ps1 start -Ollama Skip
+.\scripts\research.ps1 start -Ollama Start
+```
 
 ---
 
@@ -713,6 +720,13 @@ Se puede descargar un modelo adicional sin cambiar el modelo principal configura
 
 ```powershell
 .\scripts\ollama.ps1 pull-model -Model gpt-oss:20b
+```
+
+Ollama conserva el modelo usado durante una hora. El flujo `start` precarga automaticamente el modelo configurado despues de garantizar su descarga. El calentamiento tambien puede solicitarse de forma independiente:
+
+```powershell
+.\scripts\ollama.ps1 warm-model
+.\scripts\ollama.ps1 warm-model -Model qwen2.5-coder:3b
 ```
 
 Si se aumenta `data_volume_size_gb` en la configuracion local, la ampliacion de Cinder y del filesystem ext4 se aplica explicitamente con:

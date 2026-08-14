@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet("validate", "start", "stop", "create", "init-data", "resize-data", "deploy", "pull-model", "check-rstudio", "status", "ssh", "destroy")]
+    [ValidateSet("validate", "start", "stop", "create", "init-data", "resize-data", "deploy", "pull-model", "warm-model", "check-rstudio", "status", "ssh", "destroy")]
     [string]$Action,
 
     [Parameter(Mandatory = $false)]
@@ -441,6 +441,26 @@ fi
         break
     }
 
+    "warm-model" {
+        $context = Get-Context
+        $modelToWarm = if ([string]::IsNullOrWhiteSpace($Model)) { $config["ollama_model"] } else { $Model }
+        if ($modelToWarm -notmatch "^[A-Za-z0-9][A-Za-z0-9._/-]*(?::[A-Za-z0-9][A-Za-z0-9._-]*)?$") {
+            throw "Nombre de modelo Ollama no valido: $modelToWarm"
+        }
+        $warmPayload = @{
+            model = $modelToWarm
+            prompt = "Responde OK"
+            stream = $false
+            keep_alive = "1h"
+            options = @{ num_predict = 2; temperature = 0 }
+        } | ConvertTo-Json -Depth 4 -Compress
+        $encodedPayload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($warmPayload))
+        Write-Section "Precargando $modelToWarm"
+        Invoke-ResearchSshCommand -User $sshUser -Host $context.FloatingIp -Command "echo $encodedPayload | base64 -d | curl -fsS --max-time 600 -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:11434/api/generate >/dev/null"
+        Write-Host "Modelo $modelToWarm cargado en memoria durante 1h."
+        break
+    }
+
     "check-rstudio" {
         $server = Get-Server
         if ($null -eq $server) { throw "No existe la instancia Ollama." }
@@ -463,7 +483,7 @@ fi
     }
 
     "start" {
-        foreach ($step in @("validate", "create", "init-data", "deploy", "pull-model")) {
+        foreach ($step in @("validate", "create", "init-data", "deploy", "pull-model", "warm-model")) {
             try {
                 & $PSCommandPath -Action $step -ConfigPath $ConfigPath
                 if ($LASTEXITCODE -ne 0) { throw "Fallo ollama.ps1 $step" }

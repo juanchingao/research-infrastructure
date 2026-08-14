@@ -96,7 +96,7 @@ Ollama se gestiona de forma independiente cuando sea necesario:
 .\scripts\ollama.ps1 stop
 ```
 
-El flujo diario `research.ps1 start` y `research.ps1 stop` también arranca y apaga Ollama. Su VM puede eliminarse conservando el volumen de modelos con `ollama.ps1 destroy`.
+El flujo diario `research.ps1 start` pregunta si se desea arrancar Ollama y propone `No` por defecto para evitar costes accidentales. La elección puede fijarse sin interacción con `-Ollama Start` o `-Ollama Skip`. `research.ps1 stop` sigue apagando Ollama si existe. Su VM puede eliminarse conservando el volumen de modelos con `ollama.ps1 destroy`.
 
 ## 4. Snapshot y restauración
 

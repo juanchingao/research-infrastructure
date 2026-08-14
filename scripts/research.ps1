@@ -26,7 +26,11 @@ param(
     [switch]$Force,
 
     [Parameter(Mandatory = $false)]
-    [switch]$DeleteFloatingIp
+    [switch]$DeleteFloatingIp,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("Ask", "Start", "Skip")]
+    [string]$Ollama = "Ask"
 )
 
 Set-StrictMode -Version Latest
@@ -281,10 +285,25 @@ switch ($Action) {
     Write-Host "Paso 4/5 - Ollama"
     Write-Host ""
 
-    & $ollamaScript -Action "start"
+    $startOllama = $false
+    switch ($Ollama) {
+        "Start" { $startOllama = $true }
+        "Skip" { $startOllama = $false }
+        "Ask" {
+            $answer = Read-Host "Arrancar la instancia Ollama? Puede generar costes [s/N]"
+            $normalizedAnswer = ([string]$answer).Trim().ToLowerInvariant()
+            $startOllama = $normalizedAnswer -in @("s", "si", "sí", "y", "yes")
+        }
+    }
 
-    if ($LASTEXITCODE -ne 0) {
-        throw "Fallo el arranque de Ollama."
+    if ($startOllama) {
+        & $ollamaScript -Action "start"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Fallo el arranque de Ollama."
+        }
+    }
+    else {
+        Write-Host "Ollama: omitido; su instancia no se ha iniciado."
     }
 
 
@@ -295,7 +314,7 @@ switch ($Action) {
     Write-Host "Datos: desbloqueados y montados"
     Write-Host "RStudio: desplegado"
     Write-Host ""
-    Write-Host "Ollama: desplegado"
+    Write-Host $(if ($startOllama) { "Ollama: desplegado" } else { "Ollama: omitido" })
     Write-Host "Paso 5/5 - Abriendo tunel"
     Write-Host "RStudio estara disponible en:"
     Write-Host ""
