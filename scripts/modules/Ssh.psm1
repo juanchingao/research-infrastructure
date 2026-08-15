@@ -1,5 +1,120 @@
 Set-StrictMode -Version Latest
 
+$script:ResearchSshIdentityFile = $null
+
+
+function Set-ResearchSshIdentityFile {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        $script:ResearchSshIdentityFile = $null
+        return
+    }
+
+    $expandedPath = [Environment]::ExpandEnvironmentVariables($Path)
+    if ($expandedPath.StartsWith("~")) {
+        $expandedPath = Join-Path $HOME $expandedPath.Substring(1).TrimStart("/", "\")
+    }
+
+    if (-not (Test-Path -LiteralPath $expandedPath -PathType Leaf)) {
+        throw "No existe la clave privada SSH del perfil: $expandedPath"
+    }
+
+    $script:ResearchSshIdentityFile = (Resolve-Path -LiteralPath $expandedPath).Path
+}
+
+
+function Get-ResearchSshIdentityArguments {
+    if ([string]::IsNullOrWhiteSpace($script:ResearchSshIdentityFile)) {
+        return @()
+    }
+
+    return @("-i", $script:ResearchSshIdentityFile, "-o", "IdentitiesOnly=yes")
+}
+
+
+function Select-ResearchPublicKeyPath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Config,
+
+        [Parameter(Mandatory = $false)]
+        [string]$Path
+    )
+
+    $selectedPath = $Path
+    if ([string]::IsNullOrWhiteSpace($selectedPath)) {
+        Write-Host ""
+        Write-Host "Clave publica que se autorizara:"
+        Write-Host "  [1] Portatil URJC"
+        Write-Host "  [2] Sobremesa URJC"
+        $answer = (Read-Host "Selecciona 1 o 2").Trim()
+        $suffix = switch ($answer) {
+            "1" { "portatil_urjc" }
+            "2" { "sobremesa_urjc" }
+            default { throw "Seleccion de clave publica no valida: '$answer'." }
+        }
+
+        $identityKey = "${suffix}_ssh_private_key"
+        $keypairKey = "${suffix}_keypair"
+        $suggestedPath = $null
+        if ($Config.ContainsKey($identityKey) -and -not [string]::IsNullOrWhiteSpace($Config[$identityKey])) {
+            $suggestedPath = "$($Config[$identityKey]).pub"
+        }
+        elseif ($Config.ContainsKey($keypairKey) -and -not [string]::IsNullOrWhiteSpace($Config[$keypairKey])) {
+            $suggestedPath = "%USERPROFILE%\.ssh\$($Config[$keypairKey]).pub"
+        }
+
+        $prompt = if ([string]::IsNullOrWhiteSpace($suggestedPath)) {
+            "Ruta de la clave publica (.pub)"
+        }
+        else {
+            "Ruta de la clave publica [.pub predeterminada: $suggestedPath]"
+        }
+        $enteredPath = (Read-Host $prompt).Trim()
+        $selectedPath = if ([string]::IsNullOrWhiteSpace($enteredPath)) { $suggestedPath } else { $enteredPath }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($selectedPath)) {
+        throw "No se ha indicado ninguna clave publica."
+    }
+
+    $expandedPath = [Environment]::ExpandEnvironmentVariables($selectedPath)
+    if ($expandedPath.StartsWith("~")) {
+        $expandedPath = Join-Path $HOME $expandedPath.Substring(1).TrimStart("/", "\")
+    }
+    if (-not (Test-Path -LiteralPath $expandedPath -PathType Leaf)) {
+        throw "No existe la clave publica: $expandedPath"
+    }
+
+    return (Resolve-Path -LiteralPath $expandedPath).Path
+}
+
+
+function Add-ResearchAuthorizedKey {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$User,
+        [Parameter(Mandatory = $true)][string]$Host,
+        [Parameter(Mandatory = $true)][string]$PublicKeyPath
+    )
+
+    $publicKey = (Get-Content -LiteralPath $PublicKeyPath -Raw).Trim()
+    if ($publicKey -notmatch "^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521))\s+[A-Za-z0-9+/=]+(?:\s+.*)?$") {
+        throw "El archivo no contiene una clave publica SSH compatible."
+    }
+
+    $encodedPublicKey = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($publicKey))
+    $remoteCommand = 'set -eu; key=$(printf ''%s'' ''{0}'' | base64 -d); mkdir -p ~/.ssh; chmod 700 ~/.ssh; touch ~/.ssh/authorized_keys; grep -qxF -- "$key" ~/.ssh/authorized_keys || printf ''%s\n'' "$key" >> ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys' -f $encodedPublicKey
+    Invoke-ResearchSshCommand -User $User -Host $Host -Command $remoteCommand
+}
+
 
 function Test-SshAvailable {
     [CmdletBinding()]
@@ -41,7 +156,8 @@ function Invoke-ResearchSsh {
 
     $null = Test-SshAvailable
 
-    & ssh "$User@$Host"
+    $identityArguments = @(Get-ResearchSshIdentityArguments)
+    & ssh @identityArguments "$User@$Host"
 
     if ($LASTEXITCODE -ne 0) {
         throw "La sesion SSH termino con codigo $LASTEXITCODE."
@@ -69,14 +185,16 @@ function Invoke-ResearchSshCommand {
 
     if ($AllocateTty) {
 
-        & ssh `
+        $identityArguments = @(Get-ResearchSshIdentityArguments)
+        & ssh @identityArguments `
             -t `
             "$User@$Host" `
             $Command
     }
     else {
 
-        & ssh `
+        $identityArguments = @(Get-ResearchSshIdentityArguments)
+        & ssh @identityArguments `
             "$User@$Host" `
             $Command
     }
@@ -111,7 +229,8 @@ function Copy-ResearchFileToHost {
 
     $resolvedLocalPath = (Resolve-Path $LocalPath).Path
 
-    & scp `
+    $identityArguments = @(Get-ResearchSshIdentityArguments)
+    & scp @identityArguments `
         $resolvedLocalPath `
         "${User}@${Host}:$RemotePath"
 
@@ -152,7 +271,8 @@ function Invoke-ResearchSshTunnel {
     Write-Host "Pulsa Ctrl+C para cerrar el tunel."
     Write-Host ""
 
-    & ssh `
+    $identityArguments = @(Get-ResearchSshIdentityArguments)
+    & ssh @identityArguments `
         -N `
         -L $forwardSpec `
         -o "ExitOnForwardFailure=yes" `
@@ -222,6 +342,9 @@ function Wait-ResearchRemoteHttp {
 
 
 Export-ModuleMember -Function `
+    Set-ResearchSshIdentityFile, `
+    Select-ResearchPublicKeyPath, `
+    Add-ResearchAuthorizedKey, `
     Invoke-ResearchSsh, `
     Invoke-ResearchSshCommand, `
     Copy-ResearchFileToHost, `

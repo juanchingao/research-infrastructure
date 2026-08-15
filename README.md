@@ -272,13 +272,15 @@ no intenta conectar por SSH ni repite el apagado.
 .\scripts\research.ps1 start
 ```
 
-Es el comando recomendado para el uso habitual. Antes de arrancar la VM de Ollama pregunta si se desea hacerlo y selecciona `No` por defecto para evitar costes accidentales.
+Es el comando recomendado para el uso habitual. Primero pregunta si se ejecuta desde el portatil o el sobremesa y selecciona el keypair y la clave privada SSH configurados para ese perfil. Antes de arrancar la VM de Ollama pregunta si se desea hacerlo y selecciona `No` por defecto para evitar costes accidentales.
 
 Para automatización se puede decidir sin pregunta:
 
 ```powershell
 .\scripts\research.ps1 start -Ollama Skip
 .\scripts\research.ps1 start -Ollama Start
+.\scripts\research.ps1 start -Client PortatilURJC -Ollama Skip
+.\scripts\research.ps1 start -Client SobremesaURJC -Ollama Skip
 ```
 
 ---
@@ -535,6 +537,10 @@ Ejemplo:
 
 ```yaml
 keypair: 2026-08PortatilURJC
+portatil_urjc_keypair: 2026-08PortatilURJC
+portatil_urjc_ssh_private_key: %USERPROFILE%\.ssh\2026-08PortatilURJC
+sobremesa_urjc_keypair: 2026-08SobremesaURJC
+sobremesa_urjc_ssh_private_key: %USERPROFILE%\.ssh\2026-08SobremesaURJC
 
 data_volume_name: research-data-01
 data_volume_size_gb: 200
@@ -545,6 +551,22 @@ data_mount_point: /data
 ```
 
 Este fichero está excluido de Git.
+
+Los campos `*_ssh_private_key` contienen solamente la ruta local, no el contenido de la clave. El keypair se usa al crear la VM; para permitir que una VM existente acepte tambien la segunda clave publica:
+
+```powershell
+.\scripts\research.ps1 authorize-key
+# O sin preguntas:
+.\scripts\research.ps1 authorize-key -Client PortatilURJC -PublicKeyPath C:\ruta\2026-08SobremesaURJC.pub
+```
+
+La VM independiente de Ollama mantiene su propio `authorized_keys`. Si ya existe, autoriza tambien en ella la clave del segundo equipo:
+
+```powershell
+.\scripts\ollama.ps1 authorize-key
+# O sin preguntas:
+.\scripts\ollama.ps1 authorize-key -Client PortatilURJC -PublicKeyPath C:\ruta\2026-08SobremesaURJC.pub
+```
 
 Nunca debe contener:
 

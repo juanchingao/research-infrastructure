@@ -13,6 +13,7 @@ param(
     "check-r",
     "snapshot-data",
     "backup-data",
+    "authorize-key",
     "tunnel",
     "ssh",
     "destroy"
@@ -21,6 +22,13 @@ param(
 
     [Parameter(Mandatory = $false)]
     [string]$ConfigPath,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("Ask", "PortatilURJC", "SobremesaURJC")]
+    [string]$Client = "Ask",
+
+    [Parameter(Mandatory = $false)]
+    [string]$PublicKeyPath,
 
     [Parameter(Mandatory = $false)]
     [switch]$Force,
@@ -198,6 +206,46 @@ function Find-RemoteLuksDevice {
     throw "Se han encontrado varios dispositivos LUKS. No se puede seleccionar uno de forma segura."
 }
 
+
+function Select-ResearchClientProfile {
+    param(
+        [Parameter(Mandatory = $true)][hashtable]$Config,
+        [Parameter(Mandatory = $true)][string]$RequestedClient
+    )
+
+    $selected = $RequestedClient
+    if ($selected -eq "Ask") {
+        Write-Host ""
+        Write-Host "Equipo desde el que estas trabajando:"
+        Write-Host "  [1] Portatil URJC"
+        Write-Host "  [2] Sobremesa URJC"
+        $answer = (Read-Host "Selecciona 1 o 2").Trim()
+        $selected = switch ($answer) {
+            "1" { "PortatilURJC" }
+            "2" { "SobremesaURJC" }
+            default { throw "Seleccion de equipo no valida: '$answer'." }
+        }
+    }
+
+    $suffix = if ($selected -eq "PortatilURJC") { "portatil_urjc" } else { "sobremesa_urjc" }
+    $keypairKey = "${suffix}_keypair"
+    $identityKey = "${suffix}_ssh_private_key"
+
+    if ($Config.ContainsKey($keypairKey) -and -not [string]::IsNullOrWhiteSpace($Config[$keypairKey])) {
+        $Config["keypair"] = $Config[$keypairKey]
+    }
+
+    if ($Config.ContainsKey($identityKey) -and -not [string]::IsNullOrWhiteSpace($Config[$identityKey])) {
+        Set-ResearchSshIdentityFile -Path $Config[$identityKey]
+    }
+    else {
+        Set-ResearchSshIdentityFile -Path $null
+    }
+
+    Write-Host "Perfil de cliente: $selected (keypair: $($Config['keypair']))"
+    return $selected
+}
+
 function Stop-RemoteResearchServices {
     param([string]$User, [string]$RemoteHost)
 
@@ -217,6 +265,8 @@ function Close-RemoteDataVolume {
 $config = Get-ResearchConfig `
     -RepoRoot $repoRoot `
     -LocalConfigPath $ConfigPath
+
+$selectedClient = Select-ResearchClientProfile -Config $config -RequestedClient $Client
 
 $sshUser = $config["ssh_user"]
 
@@ -249,7 +299,8 @@ switch ($Action) {
 
     & $PSCommandPath `
         -Action "create" `
-        -ConfigPath $ConfigPath
+        -ConfigPath $ConfigPath `
+        -Client $selectedClient
 
     if ($LASTEXITCODE -ne 0) {
         throw "Fallo la preparacion de la infraestructura."
@@ -262,7 +313,8 @@ switch ($Action) {
 
     & $PSCommandPath `
         -Action "mount-data" `
-        -ConfigPath $ConfigPath
+        -ConfigPath $ConfigPath `
+        -Client $selectedClient
 
     if ($LASTEXITCODE -ne 0) {
         throw "Fallo el montaje del volumen de datos."
@@ -275,7 +327,8 @@ switch ($Action) {
 
     & $PSCommandPath `
         -Action "deploy-rstudio" `
-        -ConfigPath $ConfigPath
+        -ConfigPath $ConfigPath `
+        -Client $selectedClient
 
     if ($LASTEXITCODE -ne 0) {
         throw "Fallo el despliegue de RStudio."
@@ -297,7 +350,7 @@ switch ($Action) {
     }
 
     if ($startOllama) {
-        & $ollamaScript -Action "start"
+        & $ollamaScript -Action "start" -Client $selectedClient
         if ($LASTEXITCODE -ne 0) {
             throw "Fallo el arranque de Ollama."
         }
@@ -324,7 +377,8 @@ switch ($Action) {
 
     & $PSCommandPath `
         -Action "tunnel" `
-        -ConfigPath $ConfigPath
+        -ConfigPath $ConfigPath `
+        -Client $selectedClient
 
     break
 }
@@ -463,6 +517,20 @@ switch ($Action) {
         Invoke-ResearchSshCommand -User $sshUser -Host $floatingIp -Command "sudo mkfs.ext4 -L research-data /dev/mapper/$mapperName && sudo mkdir -p $mountPoint && sudo mount /dev/mapper/$mapperName $mountPoint && sudo install -d -m 700 -o $sshUser -g $sshUser $mountPoint/.secrets && sudo install -d -m 700 -o 1000 -g 1000 $mountPoint/rstudio-home && sudo install -d -m 2775 -o 1000 -g 1000 $mountPoint/.cache/renv && sudo chown ${sshUser}:${sshUser} $mountPoint"
 
         Write-Host "Volumen LUKS2 inicializado y montado. Ejecuta configure-rstudio para crear el secreto."
+        break
+    }
+
+    "authorize-key" {
+        $resolvedPublicKeyPath = Select-ResearchPublicKeyPath -Config $config -Path $PublicKeyPath
+
+        $server = Get-CurrentServer -Config $config
+        if ($null -eq $server) { throw "No existe la instancia '$($config['instance_name'])'." }
+        $serverId = Get-ObjectPropertyValue -Object $server -PropertyNames @("ID", "id")
+        $floatingIp = Get-PreferredFloatingIp -ServerId $serverId
+        if ([string]::IsNullOrWhiteSpace($floatingIp)) { throw "La instancia no tiene floating IP." }
+
+        Add-ResearchAuthorizedKey -User $sshUser -Host $floatingIp -PublicKeyPath $resolvedPublicKeyPath
+        Write-Host "Clave publica autorizada en '$($config['instance_name'])'."
         break
     }
 
@@ -643,7 +711,7 @@ switch ($Action) {
         $server = Get-CurrentServer -Config $config
         if ($null -eq $server) {
             Write-Host "La instancia RStudio no existe; comprobando Ollama."
-            & $ollamaScript -Action "stop"
+            & $ollamaScript -Action "stop" -Client $selectedClient
             if ($LASTEXITCODE -ne 0) { throw "Fallo el apagado de Ollama." }
             break
         }
@@ -681,7 +749,7 @@ switch ($Action) {
         Write-Host "Floating IP: conservada"
 
         Write-Section "Apagando Ollama"
-        & $ollamaScript -Action "stop"
+        & $ollamaScript -Action "stop" -Client $selectedClient
         if ($LASTEXITCODE -ne 0) {
             throw "RStudio se apago, pero fallo el apagado de Ollama."
         }

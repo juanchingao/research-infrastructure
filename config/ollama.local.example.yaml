@@ -1,4 +1,8 @@
 # Copia como config/ollama.local.yaml y ajusta los valores locales.
 keypair: 2026-08PortatilURJC
+portatil_urjc_keypair: 2026-08PortatilURJC
+portatil_urjc_ssh_private_key: %USERPROFILE%\.ssh\2026-08PortatilURJC
+sobremesa_urjc_keypair: 2026-08SobremesaURJC
+sobremesa_urjc_ssh_private_key: %USERPROFILE%\.ssh\2026-08SobremesaURJC
 ssh_cidr: 203.0.113.10/32
 rstudio_private_cidr: 192.168.103.178/32

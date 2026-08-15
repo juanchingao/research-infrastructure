@@ -20,6 +20,29 @@ openstack token issue
 3. Copia `config/infrastructure.local.example.yaml` a `config/infrastructure.local.yaml`.
 4. Configura un `keypair` real y `research_ssh_cidr` con la IP/CIDR desde la que te conectarás. Para una sola IP utiliza `A.B.C.D/32`.
 
+Para trabajar desde el portatil y el sobremesa, configura tambien los cuatro campos de perfil incluidos en `infrastructure.local.example.yaml`. Al ejecutar el script sin `-Client`, se pregunta el equipo; tambien puedes indicarlo sin interaccion:
+
+```powershell
+.\scripts\research.ps1 start -Client PortatilURJC
+.\scripts\research.ps1 start -Client SobremesaURJC
+```
+
+El keypair elegido solo se usa al crear una VM. Para autorizar la clave publica del segundo equipo en una VM existente, ejecuta desde el equipo que ya tenga acceso:
+
+```powershell
+.\scripts\research.ps1 authorize-key
+# O sin preguntas:
+.\scripts\research.ps1 authorize-key -Client PortatilURJC -PublicKeyPath C:\ruta\2026-08SobremesaURJC.pub
+```
+
+Si la VM independiente de Ollama ya existe, autoriza la misma clave publica por separado:
+
+```powershell
+.\scripts\ollama.ps1 authorize-key
+# O sin preguntas:
+.\scripts\ollama.ps1 authorize-key -Client PortatilURJC -PublicKeyPath C:\ruta\2026-08SobremesaURJC.pub
+```
+
 El valor `203.0.113.10/32` del ejemplo es documental y debe sustituirse.
 
 ## 2. Primer despliegue
