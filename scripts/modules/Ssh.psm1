@@ -111,7 +111,9 @@ function Add-ResearchAuthorizedKey {
     }
 
     $encodedPublicKey = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($publicKey))
-    $remoteCommand = 'set -eu; key=$(printf ''%s'' ''{0}'' | base64 -d); mkdir -p ~/.ssh; chmod 700 ~/.ssh; touch ~/.ssh/authorized_keys; grep -qxF -- "$key" ~/.ssh/authorized_keys || printf ''%s\n'' "$key" >> ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys' -f $encodedPublicKey
+    # Do not expand the key into a shell argument: Windows OpenSSH can remove
+    # the nested quotes and make grep interpret key fragments as file names.
+    $remoteCommand = 'set -eu; mkdir -p ~/.ssh; chmod 700 ~/.ssh; touch ~/.ssh/authorized_keys; printf %s {0} | base64 -d > ~/.ssh/.research-key.tmp; if ! grep -qxF -f ~/.ssh/.research-key.tmp ~/.ssh/authorized_keys; then cat ~/.ssh/.research-key.tmp >> ~/.ssh/authorized_keys; printf ''\n'' >> ~/.ssh/authorized_keys; fi; rm -f ~/.ssh/.research-key.tmp; chmod 600 ~/.ssh/authorized_keys' -f $encodedPublicKey
     Invoke-ResearchSshCommand -User $User -Host $Host -Command $remoteCommand
 }
 
